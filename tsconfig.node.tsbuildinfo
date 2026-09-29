@@ -1,0 +1,1 @@
+{"root":["./vite.config.ts","./tests/e2e/editor.spec.ts","./playwright.config.ts"],"version":"5.9.3"}
