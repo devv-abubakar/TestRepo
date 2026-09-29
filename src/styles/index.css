@@ -1,0 +1,63 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@layer base {
+  :root {
+    color-scheme: dark;
+  }
+
+  html,
+  body,
+  #root {
+    height: 100%;
+  }
+
+  body {
+    margin: 0;
+    background: #08090d;
+    -webkit-font-smoothing: antialiased;
+    text-rendering: optimizeLegibility;
+  }
+
+  /* Urdu is right-to-left; the editor chrome follows the interface language. */
+  html[lang='ur'] {
+    font-family: 'Plus Jakarta Sans', 'Noto Nastaliq Urdu', system-ui, sans-serif;
+  }
+
+  ::selection {
+    background: rgba(51, 93, 255, 0.35);
+  }
+
+  *:focus-visible {
+    outline: 2px solid #5987ff;
+    outline-offset: 2px;
+    border-radius: 6px;
+  }
+
+  ::-webkit-scrollbar {
+    width: 10px;
+    height: 10px;
+  }
+  ::-webkit-scrollbar-track {
+    background: transparent;
+  }
+  ::-webkit-scrollbar-thumb {
+    background: rgba(255, 255, 255, 0.09);
+    border: 3px solid transparent;
+    background-clip: content-box;
+    border-radius: 999px;
+  }
+  ::-webkit-scrollbar-thumb:hover {
+    background: rgba(255, 255, 255, 0.18);
+    background-clip: content-box;
+  }
+}
+
+@layer utilities {
+  /* Chrome renders a canvas with a faint edge when it is scaled; this keeps the
+     preview crisp at every zoom level. */
+  canvas {
+    image-rendering: auto;
+  }
+}
