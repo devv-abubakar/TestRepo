@@ -6,9 +6,18 @@
  * endpoint, auth header, body shape, where the text hides in the response —
  * lives behind that single call, so adding a provider is one object.
  */
-import { AiError, type AiConfig, type ProviderId, type ProviderMeta } from '../../types';
+import { AiError, type ProviderId, type ProviderMeta } from '../../types';
 
 export const PROVIDERS: readonly ProviderMeta[] = [
+  {
+    id: 'gemini',
+    label: 'Google Gemini',
+    models: ['gemini-3.1-flash-lite', 'gemini-3.1-flash', 'gemini-2.5-flash', 'gemini-2.5-pro'],
+    defaultModel: 'gemini-3.1-flash-lite',
+    browserDirect: true,
+    keyHint: 'Google AI Studio key — one per cloud project multiplies the free quota',
+    docsUrl: 'https://aistudio.google.com/app/apikey',
+  },
   {
     id: 'anthropic',
     label: 'Anthropic (Claude)',
@@ -26,15 +35,6 @@ export const PROVIDERS: readonly ProviderMeta[] = [
     browserDirect: true,
     keyHint: 'Starts with sk-',
     docsUrl: 'https://platform.openai.com/api-keys',
-  },
-  {
-    id: 'gemini',
-    label: 'Google Gemini',
-    models: ['gemini-2.5-flash', 'gemini-2.5-pro'],
-    defaultModel: 'gemini-2.5-flash',
-    browserDirect: true,
-    keyHint: 'Google AI Studio API key',
-    docsUrl: 'https://aistudio.google.com/app/apikey',
   },
   {
     id: 'proxy',
@@ -62,10 +62,16 @@ export interface CompletionRequest {
   signal: AbortSignal;
 }
 
+/** Credentials for one request. The pool decides which key is used. */
+export interface ProviderAuth {
+  apiKey: string;
+  proxyUrl: string;
+}
+
 export interface Provider {
   readonly id: ProviderId;
   /** Return the model's raw text output. */
-  complete(request: CompletionRequest, config: AiConfig): Promise<string>;
+  complete(request: CompletionRequest, auth: ProviderAuth): Promise<string>;
 }
 
 /** Translate an HTTP failure into something a user can act on. */
@@ -75,7 +81,9 @@ function httpError(status: number, body: string): AiError {
     return new AiError('Invalid API key or insufficient permissions.', 'auth', false);
   }
   if (status === 429) {
-    return new AiError('Rate limit reached for your API key.', 'rate-limit', true);
+    // Gemini reports both per-minute and per-day exhaustion as 429; the body
+    // is what tells them apart, so it is kept in the message for the pool.
+    return new AiError(`Rate limit reached for this API key. ${detail}`, 'rate-limit', true);
   }
   if (status === 404) {
     return new AiError(`Model unavailable for this key. ${detail}`, 'model', false);
@@ -136,11 +144,11 @@ function requireText(value: unknown, provider: string): string {
 
 const anthropic: Provider = {
   id: 'anthropic',
-  async complete(request, config) {
+  async complete(request, auth) {
     const json = await postJson(
       'https://api.anthropic.com/v1/messages',
       {
-        'x-api-key': config.apiKey,
+        'x-api-key': auth.apiKey,
         'anthropic-version': '2023-06-01',
         // Required for browser-originated calls (BYOK mode).
         'anthropic-dangerous-direct-browser-access': 'true',
@@ -167,10 +175,10 @@ const anthropic: Provider = {
 
 const openai: Provider = {
   id: 'openai',
-  async complete(request, config) {
+  async complete(request, auth) {
     const json = await postJson(
       'https://api.openai.com/v1/chat/completions',
-      { authorization: `Bearer ${config.apiKey}` },
+      { authorization: `Bearer ${auth.apiKey}` },
       {
         model: request.model,
         temperature: request.temperature,
@@ -189,11 +197,11 @@ const openai: Provider = {
 
 const gemini: Provider = {
   id: 'gemini',
-  async complete(request, config) {
+  async complete(request, auth) {
     const model = encodeURIComponent(request.model);
     const json = await postJson(
       `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent`,
-      { 'x-goog-api-key': config.apiKey },
+      { 'x-goog-api-key': auth.apiKey },
       {
         systemInstruction: { parts: [{ text: request.system }] },
         contents: [{ role: 'user', parts: [{ text: request.user }] }],
@@ -222,8 +230,8 @@ const gemini: Provider = {
  */
 const proxy: Provider = {
   id: 'proxy',
-  async complete(request, config) {
-    const url = config.proxyUrl.trim();
+  async complete(request, auth) {
+    const url = auth.proxyUrl.trim();
     if (url.length === 0) {
       throw new AiError('No proxy endpoint URL is configured.', 'unknown', false);
     }

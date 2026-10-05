@@ -4,6 +4,7 @@ import { Dashboard } from './components/Dashboard';
 import { FolderSelector } from './components/FolderSelector';
 import { HandoutTable } from './components/HandoutTable';
 import { Header } from './components/Header';
+import { KeyActivityPanel } from './components/KeyActivityPanel';
 import { LogPanel } from './components/LogPanel';
 import { Banner, ConfirmDialog, EnvironmentNotices, ResumeOffer } from './components/Notices';
 import { PdfPreview } from './components/PdfPreview';
@@ -53,6 +54,7 @@ export default function App() {
           <>
             <Dashboard />
             <ProgressPanel />
+            <KeyActivityPanel />
             <div className="grid gap-5 lg:grid-cols-[18rem_1fr]">
               <CourseList />
               <HandoutTable />

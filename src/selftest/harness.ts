@@ -8,7 +8,7 @@
  * rejected and one with mangled whitespace that must still be matched.
  */
 import { PLAY_STORE_URL, WHATSAPP_URL } from '../constants';
-import { analyzeDocument } from '../services/ai';
+import { analyzeDocument, KeyPool, poolLimits } from '../services/ai';
 import { extractFromBytes, needsOcr } from '../services/pdf/extract';
 import { matchHighlights } from '../services/pdf/match';
 import { openPdf } from '../services/pdf/pdfjs';
@@ -55,6 +55,14 @@ class Checks {
   get ok(): boolean {
     return this.results.every((check) => check.ok);
   }
+}
+
+/** A pool holding one obviously fake key, for the failure-path scenario. */
+function stubPool(settings_: Settings, key = 'invalid-key-for-testing'): KeyPool {
+  return new KeyPool(
+    [{ id: 'k1', label: 'Test Key', key, enabled: true }],
+    poolLimits(settings_.ai),
+  );
 }
 
 function settings(patch: Partial<Settings> = {}): Settings {
@@ -252,7 +260,8 @@ export async function runSelfTest(filter?: string): Promise<TestResult[]> {
       courseCode: 'CS101',
       handoutName: 'Handout 01.pdf',
       settings: settings(),
-      onStage: noop,
+      pool: stubPool(settings()),
+      onProgress: noop,
       onLog: noop,
       analyze: stubAnalyze(fixtureHighlights()),
     });
@@ -316,7 +325,8 @@ export async function runSelfTest(filter?: string): Promise<TestResult[]> {
       courseCode: 'CS101',
       handoutName: 'Handout 02.pdf',
       settings: settings(),
-      onStage: noop,
+      pool: stubPool(settings()),
+      onProgress: noop,
       onLog: noop,
       analyze: stubAnalyze(fixtureHighlights()),
     });
@@ -386,10 +396,17 @@ export async function runSelfTest(filter?: string): Promise<TestResult[]> {
     const text = await extractFromBytes(bytes);
     let message = '';
     try {
+      const config = {
+        ...DEFAULT_SETTINGS.ai,
+        provider: 'openai' as const,
+        model: 'gpt-4.1-mini',
+        keys: [{ id: 'k1', label: 'Test Key', key: 'sk-invalid-key-for-testing', enabled: true }],
+      };
       await analyzeDocument(
         text,
         { courseCode: 'CS101', handoutName: 'Handout 01.pdf' },
-        { ...DEFAULT_SETTINGS.ai, provider: 'openai', apiKey: 'sk-invalid-key-for-testing', model: 'gpt-4.1-mini' },
+        config,
+        new KeyPool(config.keys, poolLimits(config)),
       );
     } catch (error) {
       message = error instanceof Error ? error.message : String(error);
@@ -403,7 +420,8 @@ export async function runSelfTest(filter?: string): Promise<TestResult[]> {
         courseCode: 'CS101',
         handoutName: 'Handout 01.pdf',
         settings: settings(),
-        onStage: noop,
+        pool: stubPool(settings()),
+        onProgress: noop,
         onLog: noop,
         analyze: async () => {
           throw new Error('Rate limit reached.');
@@ -420,7 +438,8 @@ export async function runSelfTest(filter?: string): Promise<TestResult[]> {
       courseCode: 'CS101',
       handoutName: 'Handout 03.pdf',
       settings: settings(),
-      onStage: noop,
+      pool: stubPool(settings()),
+      onProgress: noop,
       onLog: noop,
       analyze: stubAnalyze(fixtureHighlights()),
     });
@@ -458,7 +477,8 @@ export async function runSelfTest(filter?: string): Promise<TestResult[]> {
       courseCode: 'CS101',
       handoutName: 'Handout 01.pdf',
       settings: settings(),
-      onStage: noop,
+      pool: stubPool(settings()),
+      onProgress: noop,
       onLog: noop,
       analyze: stubAnalyze(fixtureHighlights()),
     });
@@ -497,7 +517,8 @@ export async function runSelfTest(filter?: string): Promise<TestResult[]> {
         courseCode: 'CS101',
         handoutName: 'Scanned.pdf',
         settings: settings(),
-        onStage: noop,
+        pool: stubPool(settings()),
+        onProgress: noop,
         onLog: noop,
         analyze: stubAnalyze([{ text: DEFINITION, importance: 'high', reason: 'Key definition' }]),
       });

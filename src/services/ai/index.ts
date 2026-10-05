@@ -1,6 +1,10 @@
 /**
- * Analysis orchestration: chunk the handout, call the provider, validate the
- * JSON strictly, and retry only where retrying can actually help.
+ * Analysis orchestration.
+ *
+ * A handout is split into page-aligned chunks and the chunks are analysed in
+ * parallel across the API key pool, so several free-tier projects do the work
+ * of one paid one. Every chunk reports which key picked it up and how long it
+ * took, which is what the activity log shows.
  */
 import {
   AiError,
@@ -10,16 +14,19 @@ import {
   type DocumentText,
   type Importance,
 } from '../../types';
-import { buildChunks, buildUserMessage, SYSTEM_PROMPT } from './prompt';
-import { getProvider, PROVIDERS, providerMeta } from './providers';
+import { KeyPool, type DailyUsage, type PoolLimits } from './keypool';
+import { buildChunks, buildUserMessage, SYSTEM_PROMPT, type Chunk } from './prompt';
+import { getProvider, PROVIDERS, providerMeta, type ProviderAuth } from './providers';
 
 export { PROVIDERS, providerMeta } from './providers';
 export { SYSTEM_PROMPT } from './prompt';
+export { KeyPool } from './keypool';
+export type { DailyUsage, PoolLimits } from './keypool';
 
 /** Per-request wall clock budget. */
 const REQUEST_TIMEOUT_MS = 120_000;
-/** Attempts per chunk, including the first. */
-const MAX_ATTEMPTS = 3;
+/** Attempts within one key before the chunk is handed back to the pool. */
+const JSON_ATTEMPTS = 2;
 const IMPORTANCES: readonly Importance[] = ['high', 'medium', 'low'];
 
 const JSON_REMINDER =
@@ -76,14 +83,9 @@ export function parseAiResponse(raw: string): AiResponse {
   return { highlights };
 }
 
-function sleep(ms: number): Promise<void> {
-  return new Promise((resolve) => {
-    setTimeout(resolve, ms);
-  });
-}
-
 async function complete(
   config: AiConfig,
+  auth: ProviderAuth,
   system: string,
   user: string,
   maxTokens: number,
@@ -104,7 +106,7 @@ async function complete(
         maxTokens,
         signal: controller.signal,
       },
-      config,
+      auth,
     );
   } finally {
     clearTimeout(timer);
@@ -112,79 +114,170 @@ async function complete(
   }
 }
 
+export interface ChunkInfo {
+  /** 1-based chunk number. */
+  index: number;
+  total: number;
+  /** 1-based page numbers this chunk covers. */
+  pages: number[];
+  keyLabel: string;
+}
+
 export interface AnalyzeHooks {
-  onChunk?: (done: number, total: number) => void;
-  onRetry?: (attempt: number, reason: string) => void;
   signal?: AbortSignal;
+  onChunkStart?: (info: ChunkInfo) => void;
+  onChunkDone?: (info: ChunkInfo & { highlights: number; ms: number }) => void;
+  onRetry?: (info: { index: number; attempt: number; reason: string }) => void;
+}
+
+function pageLabel(chunk: Chunk): number[] {
+  return chunk.pageIndices.map((index) => index + 1);
+}
+
+/** Build the limits object the pool needs from the user's settings. */
+export function poolLimits(config: AiConfig): PoolLimits {
+  return {
+    requestsPerMinutePerKey: Math.max(0, config.requestsPerMinutePerKey),
+    dailyBudgetPerKey: Math.max(0, config.dailyBudgetPerKey),
+    maxParallel: Math.max(1, config.maxParallelRequests),
+  };
+}
+
+/** A pool holding a single key, for providers that do not use the pool. */
+export function singleKeyPool(config: AiConfig, usage?: DailyUsage): KeyPool {
+  return new KeyPool(
+    [{ id: 'proxy', label: 'Proxy', key: 'proxy', enabled: true }],
+    poolLimits(config),
+    {},
+    usage,
+  );
 }
 
 /**
- * Analyse a whole document. Chunks are processed one at a time so a long
- * handout never holds several large requests in flight, and a chunk that
- * cannot be analysed fails the handout rather than silently losing content.
+ * Analyse one chunk. JSON problems are retried here, on the same key, because
+ * a malformed reply is the model's fault rather than the key's.
+ */
+async function analyzeChunk(
+  chunk: Chunk,
+  meta: { courseCode: string; handoutName: string },
+  config: AiConfig,
+  pool: KeyPool,
+  info: { index: number; total: number },
+  hooks: AnalyzeHooks,
+): Promise<AiHighlight[]> {
+  const pages = pageLabel(chunk);
+  const task = `${meta.handoutName} · pages ${pages[0]}-${pages[pages.length - 1]}`;
+  const user = buildUserMessage({
+    content: chunk.content,
+    courseCode: meta.courseCode,
+    handoutName: meta.handoutName,
+    maxHighlights: chunk.maxHighlights,
+  });
+
+  return pool.run(
+    task,
+    async (key, keyLabel) => {
+      const auth: ProviderAuth = { apiKey: key, proxyUrl: config.proxyUrl };
+      const started = Date.now();
+      hooks.onChunkStart?.({ ...info, pages, keyLabel });
+
+      let lastError: AiError | null = null;
+      for (let attempt = 1; attempt <= JSON_ATTEMPTS; attempt += 1) {
+        if (hooks.signal?.aborted) throw new AiError('Processing was stopped.', 'unknown', false);
+        try {
+          const reply = await complete(
+            config,
+            auth,
+            attempt === 1 ? SYSTEM_PROMPT : SYSTEM_PROMPT + JSON_REMINDER,
+            user,
+            4096,
+            hooks.signal,
+          );
+          const parsed = parseAiResponse(reply);
+          hooks.onChunkDone?.({
+            ...info,
+            pages,
+            keyLabel,
+            highlights: parsed.highlights.length,
+            ms: Date.now() - started,
+          });
+          return parsed.highlights;
+        } catch (error) {
+          const aiError =
+            error instanceof AiError
+              ? error
+              : new AiError(error instanceof Error ? error.message : 'Unknown AI failure.', 'unknown', false);
+          lastError = aiError;
+          // Anything that is not a bad reply belongs to the pool to handle.
+          if (aiError.kind !== 'invalid-response' || attempt === JSON_ATTEMPTS) throw aiError;
+          hooks.onRetry?.({ index: info.index, attempt, reason: aiError.message });
+        }
+      }
+      throw lastError ?? new AiError('The AI request failed.', 'unknown', false);
+    },
+    hooks.signal,
+  );
+}
+
+/**
+ * Analyse a whole document. Chunks run concurrently up to the pool's
+ * parallelism, and the first hard failure fails the handout — a partially
+ * analysed handout would be highlighted from incomplete information.
  */
 export async function analyzeDocument(
   text: DocumentText,
   meta: { courseCode: string; handoutName: string },
   config: AiConfig,
+  pool: KeyPool,
   hooks: AnalyzeHooks = {},
 ): Promise<AiHighlight[]> {
   validateConfig(config);
   const chunks = buildChunks(text.pages);
-  const all: AiHighlight[] = [];
+  const results: AiHighlight[][] = new Array<AiHighlight[]>(chunks.length).fill([]);
 
-  for (let i = 0; i < chunks.length; i += 1) {
-    const chunk = chunks[i];
-    if (!chunk) continue;
-    hooks.onChunk?.(i, chunks.length);
+  let cursor = 0;
+  let failure: unknown = null;
 
-    const user = buildUserMessage({
-      content: chunk.content,
-      courseCode: meta.courseCode,
-      handoutName: meta.handoutName,
-      maxHighlights: chunk.maxHighlights,
-    });
-
-    let lastError: AiError | null = null;
-    for (let attempt = 1; attempt <= MAX_ATTEMPTS; attempt += 1) {
-      if (hooks.signal?.aborted) throw new AiError('Processing was stopped.', 'unknown', false);
+  const worker = async (): Promise<void> => {
+    for (;;) {
+      if (failure !== null || hooks.signal?.aborted) return;
+      const index = cursor;
+      cursor += 1;
+      const chunk = chunks[index];
+      if (!chunk) return;
       try {
-        const reply = await complete(
+        results[index] = await analyzeChunk(
+          chunk,
+          meta,
           config,
-          attempt === 1 ? SYSTEM_PROMPT : SYSTEM_PROMPT + JSON_REMINDER,
-          user,
-          4096,
-          hooks.signal,
+          pool,
+          { index: index + 1, total: chunks.length },
+          hooks,
         );
-        const parsed = parseAiResponse(reply);
-        all.push(...parsed.highlights);
-        lastError = null;
-        break;
       } catch (error) {
-        const aiError =
-          error instanceof AiError
-            ? error
-            : new AiError(error instanceof Error ? error.message : 'Unknown AI failure.', 'unknown', false);
-        lastError = aiError;
-        if (!aiError.retryable || attempt === MAX_ATTEMPTS) break;
-        hooks.onRetry?.(attempt, aiError.message);
-        // Back off further for rate limits than for a malformed reply.
-        const base = aiError.kind === 'rate-limit' ? 4000 : 1200;
-        await sleep(base * attempt);
+        // Record the first failure and let the other workers wind down.
+        if (failure === null) failure = error;
+        return;
       }
     }
-    if (lastError) throw lastError;
-  }
+  };
 
-  hooks.onChunk?.(chunks.length, chunks.length);
-  return all;
+  const lanes = Math.max(1, Math.min(pool.parallelism, chunks.length || 1));
+  await Promise.all(Array.from({ length: lanes }, worker));
+
+  if (failure !== null) throw failure;
+  if (hooks.signal?.aborted) throw new AiError('Processing was stopped.', 'unknown', false);
+  return results.flat();
 }
 
 /** Reject an unusable configuration before any request is attempted. */
 export function validateConfig(config: AiConfig): void {
   const meta = providerMeta(config.provider);
-  if (meta.browserDirect && config.apiKey.trim().length === 0) {
-    throw new AiError('Add your API key before processing.', 'auth', false);
+  if (meta.browserDirect) {
+    const usable = config.keys.filter((entry) => entry.enabled && entry.key.trim().length > 0);
+    if (usable.length === 0) {
+      throw new AiError('Add at least one API key before processing.', 'auth', false);
+    }
   }
   if (config.provider === 'proxy' && config.proxyUrl.trim().length === 0) {
     throw new AiError('Add your proxy endpoint URL before processing.', 'unknown', false);
@@ -194,16 +287,57 @@ export function validateConfig(config: AiConfig): void {
   }
 }
 
-/** A real round-trip against the configured provider, used by Test Connection. */
-export async function testConnection(config: AiConfig): Promise<string> {
+export interface ConnectionResult {
+  label: string;
+  ok: boolean;
+  message: string;
+  ms: number;
+}
+
+/**
+ * A real round-trip per key, so a bad key in a pool of ten is identified
+ * before a 300-handout batch starts rather than during it.
+ */
+export async function testConnection(config: AiConfig): Promise<ConnectionResult[]> {
   validateConfig(config);
-  const reply = await complete(
-    config,
-    'You verify API connectivity. Reply with JSON only.',
-    'Reply with exactly {"highlights":[]} and nothing else.',
-    64,
-  );
-  parseAiResponse(reply);
-  const label = PROVIDERS.find((p) => p.id === config.provider)?.label ?? config.provider;
-  return `${label} responded correctly using ${config.model}.`;
+  const meta = providerMeta(config.provider);
+  const targets: { label: string; key: string }[] = meta.browserDirect
+    ? config.keys
+        .filter((entry) => entry.enabled && entry.key.trim().length > 0)
+        .map((entry) => ({ label: entry.label, key: entry.key }))
+    : [{ label: 'Proxy', key: '' }];
+
+  const results: ConnectionResult[] = [];
+  for (const target of targets) {
+    const started = Date.now();
+    try {
+      const reply = await complete(
+        config,
+        { apiKey: target.key, proxyUrl: config.proxyUrl },
+        'You verify API connectivity. Reply with JSON only.',
+        'Reply with exactly {"highlights":[]} and nothing else.',
+        64,
+      );
+      parseAiResponse(reply);
+      results.push({
+        label: target.label,
+        ok: true,
+        message: `OK — ${config.model} responded correctly.`,
+        ms: Date.now() - started,
+      });
+    } catch (error) {
+      results.push({
+        label: target.label,
+        ok: false,
+        message: error instanceof Error ? error.message : 'Connection failed.',
+        ms: Date.now() - started,
+      });
+    }
+  }
+  return results;
+}
+
+/** Label used when the UI has to describe the provider in one word. */
+export function providerLabel(config: AiConfig): string {
+  return PROVIDERS.find((entry) => entry.id === config.provider)?.label ?? config.provider;
 }
