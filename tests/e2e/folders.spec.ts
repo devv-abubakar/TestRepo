@@ -80,6 +80,10 @@ test('detects courses and handouts from a selected folder tree', async ({ page }
   await expect(dialog).toContainText('Existing outputs');
   await expect(dialog.locator('dd').nth(1)).toHaveText('6');
   await expect(dialog.locator('dd').nth(2)).toHaveText('1');
+  // The pre-flight summary states what the chosen coverage mode will cost.
+  await expect(dialog).toContainText('Coverage mode');
+  await expect(dialog).toContainText('complete');
+  await expect(dialog).toContainText('AI requests per ~12,000 characters');
   await page.getByRole('button', { name: 'Cancel' }).click();
   await expect(dialog).toHaveCount(0);
 

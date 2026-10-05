@@ -6,9 +6,12 @@ import { makePage } from './helpers';
 const SETTINGS: HighlightSettings = {
   color: '#FFF176',
   opacity: 0.38,
+  coverage: 'selective',
   minImportance: 'medium',
   maxPerPage: 6,
+  pageCoverageCeiling: 0.35,
   minConfidence: 0.9,
+  ruleBasedSweep: false,
 };
 
 const DEFINITION = 'Inflation is a sustained increase in the general price level of an economy.';
@@ -162,5 +165,39 @@ describe('matchHighlights', () => {
     const report = matchHighlights(doc([DEFINITION]), [highlight(DEFINITION.slice(3, -5))], SETTINGS);
     const matched = report.matched[0]?.matchedText ?? '';
     expect(matched.startsWith('flation')).toBe(false);
+  });
+});
+
+describe('coverage ceiling settings', () => {
+  const lines = Array.from(
+    { length: 30 },
+    (_, i) => `Paragraph ${i} explains one distinct idea in a full sentence of body text.`,
+  );
+  const greedy = lines.map((line) => highlight(line));
+
+  function shareFor(ceiling: number): number {
+    const report = matchHighlights(doc(lines), greedy, {
+      ...SETTINGS,
+      maxPerPage: 0,
+      pageCoverageCeiling: ceiling,
+    });
+    const page = doc(lines).pages[0];
+    const marked = report.matched.reduce((sum, match) => sum + match.matchedText.length, 0);
+    return marked / (page?.normalized.length ?? 1);
+  }
+
+  it('honours a looser ceiling by marking more', () => {
+    expect(shareFor(0.75)).toBeGreaterThan(shareFor(0.35));
+  });
+
+  it('never exceeds the configured ceiling by much', () => {
+    for (const ceiling of [0.35, 0.5, 0.75]) {
+      // One span may straddle the boundary, hence the small allowance.
+      expect(shareFor(ceiling)).toBeLessThanOrEqual(ceiling + 0.08);
+    }
+  });
+
+  it('clamps an absurd ceiling rather than marking the whole page', () => {
+    expect(shareFor(5)).toBeLessThanOrEqual(0.96);
   });
 });

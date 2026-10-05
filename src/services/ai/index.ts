@@ -11,15 +11,26 @@ import {
   type AiConfig,
   type AiHighlight,
   type AiResponse,
+  type CoverageMode,
   type DocumentText,
   type Importance,
 } from '../../types';
+import { normalizeQuote } from '../../utils/text';
 import { KeyPool, type DailyUsage, type PoolLimits } from './keypool';
-import { buildChunks, buildUserMessage, SYSTEM_PROMPT, type Chunk } from './prompt';
+import {
+  buildChunks,
+  buildUserMessage,
+  passPlan,
+  structuredSystemPrompt,
+  sweepSystemPrompt,
+  systemPrompt,
+  type Chunk,
+  type PassKind,
+} from './prompt';
 import { getProvider, PROVIDERS, providerMeta, type ProviderAuth } from './providers';
 
 export { PROVIDERS, providerMeta } from './providers';
-export { SYSTEM_PROMPT } from './prompt';
+export { passPlan, systemPrompt } from './prompt';
 export { KeyPool } from './keypool';
 export type { DailyUsage, PoolLimits } from './keypool';
 
@@ -121,6 +132,11 @@ export interface ChunkInfo {
   /** 1-based page numbers this chunk covers. */
   pages: number[];
   keyLabel: string;
+  /** Which review pass this request belongs to. */
+  pass: PassKind;
+  /** 1-based pass number out of the plan's total. */
+  passIndex: number;
+  passTotal: number;
 }
 
 export interface AnalyzeHooks {
@@ -128,6 +144,29 @@ export interface AnalyzeHooks {
   onChunkStart?: (info: ChunkInfo) => void;
   onChunkDone?: (info: ChunkInfo & { highlights: number; ms: number }) => void;
   onRetry?: (info: { index: number; attempt: number; reason: string }) => void;
+}
+
+/** What the caller wants analysed, and how thoroughly. */
+export interface AnalyzeRequest {
+  courseCode: string;
+  handoutName: string;
+  coverage: CoverageMode;
+}
+
+export interface AnalysisResult {
+  highlights: AiHighlight[];
+  /** AI requests actually spent, for the coverage report. */
+  requests: number;
+}
+
+const PASS_LABEL: Record<PassKind, string> = {
+  primary: 'first pass',
+  gap: 'gap sweep',
+  structured: 'definition sweep',
+};
+
+export function passLabel(kind: PassKind): string {
+  return PASS_LABEL[kind];
 }
 
 function pageLabel(chunk: Chunk): number[] {
@@ -153,33 +192,67 @@ export function singleKeyPool(config: AiConfig, usage?: DailyUsage): KeyPool {
   );
 }
 
+/** Dedupe candidates by their normalized text, keeping the first seen. */
+function dedupe(highlights: readonly AiHighlight[]): AiHighlight[] {
+  const seen = new Set<string>();
+  const out: AiHighlight[] = [];
+  for (const highlight of highlights) {
+    const key = normalizeQuote(highlight.text);
+    if (key.length === 0 || seen.has(key)) continue;
+    seen.add(key);
+    out.push(highlight);
+  }
+  return out;
+}
+
 /**
- * Analyse one chunk. JSON problems are retried here, on the same key, because
- * a malformed reply is the model's fault rather than the key's.
+ * One request to the model. JSON problems are retried here, on the same key,
+ * because a malformed reply is the model's fault rather than the key's.
  */
-async function analyzeChunk(
+async function runPass(
   chunk: Chunk,
-  meta: { courseCode: string; handoutName: string },
+  meta: AnalyzeRequest,
   config: AiConfig,
   pool: KeyPool,
+  pass: { kind: PassKind; share: number; index: number; total: number },
+  alreadySelected: readonly string[],
   info: { index: number; total: number },
   hooks: AnalyzeHooks,
 ): Promise<AiHighlight[]> {
   const pages = pageLabel(chunk);
-  const task = `${meta.handoutName} · pages ${pages[0]}-${pages[pages.length - 1]}`;
-  const user = buildUserMessage({
-    content: chunk.content,
-    courseCode: meta.courseCode,
-    handoutName: meta.handoutName,
-    maxHighlights: chunk.maxHighlights,
-  });
+  const mode = meta.coverage;
+  const system =
+    pass.kind === 'primary'
+      ? systemPrompt(mode)
+      : pass.kind === 'gap'
+        ? sweepSystemPrompt(mode)
+        : structuredSystemPrompt();
+
+  const user = buildUserMessage(
+    {
+      content: chunk.content,
+      courseCode: meta.courseCode,
+      handoutName: meta.handoutName,
+      maxHighlights: Math.max(3, Math.round(chunk.maxHighlights * pass.share)),
+    },
+    pass.kind === 'primary' ? [] : alreadySelected,
+  );
+
+  const task = `${meta.handoutName} · pages ${pages[0]}-${pages[pages.length - 1]} · ${PASS_LABEL[pass.kind]}`;
+  const shared = {
+    ...info,
+    pages,
+    pass: pass.kind,
+    passIndex: pass.index,
+    passTotal: pass.total,
+  };
 
   return pool.run(
     task,
     async (key, keyLabel) => {
       const auth: ProviderAuth = { apiKey: key, proxyUrl: config.proxyUrl };
       const started = Date.now();
-      hooks.onChunkStart?.({ ...info, pages, keyLabel });
+      hooks.onChunkStart?.({ ...shared, keyLabel });
 
       let lastError: AiError | null = null;
       for (let attempt = 1; attempt <= JSON_ATTEMPTS; attempt += 1) {
@@ -188,15 +261,14 @@ async function analyzeChunk(
           const reply = await complete(
             config,
             auth,
-            attempt === 1 ? SYSTEM_PROMPT : SYSTEM_PROMPT + JSON_REMINDER,
+            attempt === 1 ? system : system + JSON_REMINDER,
             user,
             4096,
             hooks.signal,
           );
           const parsed = parseAiResponse(reply);
           hooks.onChunkDone?.({
-            ...info,
-            pages,
+            ...shared,
             keyLabel,
             highlights: parsed.highlights.length,
             ms: Date.now() - started,
@@ -220,20 +292,72 @@ async function analyzeChunk(
 }
 
 /**
+ * Analyse one chunk with every pass the coverage mode calls for. The passes
+ * run in order because each later one is told what the earlier ones already
+ * found — that exclusion list is what makes a sweep recover misses instead of
+ * returning the same spans again.
+ *
+ * A sweep that fails does not fail the handout: the primary pass already
+ * produced usable highlights, and losing them to a rate limit on an extra
+ * request would be worse than slightly thinner coverage.
+ */
+async function analyzeChunk(
+  chunk: Chunk,
+  meta: AnalyzeRequest,
+  config: AiConfig,
+  pool: KeyPool,
+  info: { index: number; total: number },
+  hooks: AnalyzeHooks,
+): Promise<{ highlights: AiHighlight[]; requests: number }> {
+  const plan = passPlan(meta.coverage);
+  const collected: AiHighlight[] = [];
+  let requests = 0;
+
+  for (let i = 0; i < plan.length; i += 1) {
+    const pass = plan[i];
+    if (!pass) continue;
+    const descriptor = { ...pass, index: i + 1, total: plan.length };
+    try {
+      const found = await runPass(
+        chunk,
+        meta,
+        config,
+        pool,
+        descriptor,
+        collected.map((highlight) => highlight.text),
+        info,
+        hooks,
+      );
+      requests += 1;
+      collected.push(...found);
+    } catch (error) {
+      requests += 1;
+      if (pass.kind === 'primary') throw error;
+      const reason = error instanceof Error ? error.message : 'unknown error';
+      hooks.onRetry?.({ index: info.index, attempt: descriptor.index, reason: `${PASS_LABEL[pass.kind]} skipped — ${reason}` });
+      break;
+    }
+  }
+
+  return { highlights: dedupe(collected), requests };
+}
+
+/**
  * Analyse a whole document. Chunks run concurrently up to the pool's
  * parallelism, and the first hard failure fails the handout — a partially
  * analysed handout would be highlighted from incomplete information.
  */
 export async function analyzeDocument(
   text: DocumentText,
-  meta: { courseCode: string; handoutName: string },
+  meta: AnalyzeRequest,
   config: AiConfig,
   pool: KeyPool,
   hooks: AnalyzeHooks = {},
-): Promise<AiHighlight[]> {
+): Promise<AnalysisResult> {
   validateConfig(config);
-  const chunks = buildChunks(text.pages);
+  const chunks = buildChunks(text.pages, meta.coverage);
   const results: AiHighlight[][] = new Array<AiHighlight[]>(chunks.length).fill([]);
+  const counts: number[] = new Array<number>(chunks.length).fill(0);
 
   let cursor = 0;
   let failure: unknown = null;
@@ -246,7 +370,7 @@ export async function analyzeDocument(
       const chunk = chunks[index];
       if (!chunk) return;
       try {
-        results[index] = await analyzeChunk(
+        const outcome = await analyzeChunk(
           chunk,
           meta,
           config,
@@ -254,6 +378,8 @@ export async function analyzeDocument(
           { index: index + 1, total: chunks.length },
           hooks,
         );
+        results[index] = outcome.highlights;
+        counts[index] = outcome.requests;
       } catch (error) {
         // Record the first failure and let the other workers wind down.
         if (failure === null) failure = error;
@@ -267,7 +393,10 @@ export async function analyzeDocument(
 
   if (failure !== null) throw failure;
   if (hooks.signal?.aborted) throw new AiError('Processing was stopped.', 'unknown', false);
-  return results.flat();
+  return {
+    highlights: dedupe(results.flat()),
+    requests: counts.reduce((sum, value) => sum + value, 0),
+  };
 }
 
 /** Reject an unusable configuration before any request is attempted. */

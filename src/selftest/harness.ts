@@ -10,21 +10,29 @@
 import { PLAY_STORE_URL, WHATSAPP_URL } from '../constants';
 import { analyzeDocument, KeyPool, poolLimits } from '../services/ai';
 import { extractFromBytes, needsOcr } from '../services/pdf/extract';
+import { sweepForCues } from '../services/pdf/cues';
 import { matchHighlights } from '../services/pdf/match';
 import { openPdf } from '../services/pdf/pdfjs';
 import { releaseCanvas, renderPage } from '../services/pdf/render';
 import { processHandout } from '../services/pdf/process';
 import { clearSession, loadSnapshot, putOutput, saveSnapshot } from '../services/persist';
 import { buildZip } from '../services/zip';
-import { DEFAULT_SETTINGS } from '../store/defaults';
+import { COVERAGE_PRESETS, DEFAULT_SETTINGS } from '../store/defaults';
 import type { AiHighlight, DocumentText, Settings } from '../types';
 import { squashSpace } from '../utils/text';
 import {
+  buildDefinitionHandout,
   buildHandout,
   buildScannedHandout,
+  CLASS_MARKET,
   CLASSIFICATION,
+  DEF_ELASTICITY,
+  DEF_INFLATION,
+  DEF_OPPORTUNITY,
   DEFINITION,
   FORMULA,
+  FORMULA_REAL,
+  RULE_DEMAND,
 } from './fixtures';
 
 export interface CheckResult {
@@ -356,37 +364,52 @@ export async function runSelfTest(filter?: string): Promise<TestResult[]> {
   });
 
   // ---------------------------------------------------- over-highlight guard
-  await maybe('Test: a dense page is not flooded with yellow', async (checks) => {
+  await maybe('Test: the coverage ceiling holds on a dense page', async (checks) => {
     const bytes = await buildHandout({ extraPages: 1, densePage: true });
     const text = await extractFromBytes(bytes);
     const dense = text.pages[1];
     if (!dense) throw new Error('dense page missing');
 
-    const sentences = dense.normalized
+    // A model that offers every single sentence: the caps, not the model, are
+    // what has to keep the page readable.
+    const greedy: AiHighlight[] = dense.normalized
       .split('. ')
-      .map((s) => s.trim())
-      .filter((s) => s.length > 30);
-    const greedy: AiHighlight[] = sentences.map((text_) => ({
-      text: text_,
-      importance: 'high',
-      reason: 'Greedy',
-    }));
+      .map((sentence) => sentence.trim())
+      .filter((sentence) => sentence.length > 30)
+      .map((sentence) => ({ text: sentence, importance: 'high' as const, reason: 'Greedy' }));
 
-    const report = matchHighlights(text, greedy, settings({ highlight: { ...DEFAULT_SETTINGS.highlight, maxPerPage: 0 } }).highlight);
-    const highlighted = report.matched
-      .filter((m) => m.pageIndex === 1)
-      .reduce((sum, m) => sum + m.matchedText.length, 0);
-    const share = highlighted / dense.normalized.length;
+    const shareFor = (preset: (typeof COVERAGE_PRESETS)[keyof typeof COVERAGE_PRESETS]) => {
+      const highlight = { ...DEFAULT_SETTINGS.highlight, ...preset, maxPerPage: 0 };
+      const report = matchHighlights(text, greedy, highlight);
+      const marked = report.matched
+        .filter((match) => match.pageIndex === 1)
+        .reduce((sum, match) => sum + match.matchedText.length, 0);
+      return {
+        share: marked / dense.normalized.length,
+        accepted: report.acceptedSpans,
+        capped: report.failures.some((failure) => failure.reason.includes('coverage')),
+        ceiling: highlight.pageCoverageCeiling,
+      };
+    };
 
-    checks.assert('some content was highlighted', report.acceptedSpans > 0, String(report.acceptedSpans));
+    const selective = shareFor(COVERAGE_PRESETS.selective);
+    const complete = shareFor(COVERAGE_PRESETS.complete);
+
+    checks.assert('something is highlighted in every mode', selective.accepted > 0 && complete.accepted > 0);
     checks.assert(
-      'highlighted share stays well under half the page',
-      share < 0.45,
-      `${Math.round(share * 100)}% of ${dense.normalized.length} chars`,
+      'selective mode keeps a dense page close to a third',
+      selective.share <= selective.ceiling + 0.08,
+      `${Math.round(selective.share * 100)}% against a ${Math.round(selective.ceiling * 100)}% ceiling`,
     );
     checks.assert(
+      'complete mode still respects its own ceiling',
+      complete.share <= complete.ceiling + 0.08,
+      `${Math.round(complete.share * 100)}% against a ${Math.round(complete.ceiling * 100)}% ceiling`,
+    );
+    checks.assert('complete mode marks more than selective', complete.share > selective.share);
+    checks.assert(
       'the excess was reported rather than drawn',
-      report.failures.some((f) => f.reason.includes('coverage')),
+      selective.capped && complete.capped,
     );
   });
 
@@ -404,7 +427,7 @@ export async function runSelfTest(filter?: string): Promise<TestResult[]> {
       };
       await analyzeDocument(
         text,
-        { courseCode: 'CS101', handoutName: 'Handout 01.pdf' },
+        { courseCode: 'CS101', handoutName: 'Handout 01.pdf', coverage: 'balanced' },
         config,
         new KeyPool(config.keys, poolLimits(config)),
       );
@@ -463,6 +486,8 @@ export async function runSelfTest(filter?: string): Promise<TestResult[]> {
           status: 'completed',
           highlightCount: 7,
           pageCount: 3,
+          pagesWithoutHighlights: 0,
+          coverageShare: 0.21,
           lowConfidenceSkipped: 1,
           usedOcr: false,
         },
@@ -499,6 +524,91 @@ export async function runSelfTest(filter?: string): Promise<TestResult[]> {
     checks.assert('course folder structure preserved', asText.includes('CS101/Handout 01_AI_Highlighted.pdf'));
     checks.assert('archive contains the PDF payload', blob.size > outcome.bytes.byteLength * 0.9, `${blob.size} bytes`);
     await clearSession();
+  });
+
+  // ---------------------------------------------------- recall
+  await maybe('Test: nothing examinable is left unmarked when the model is unhelpful', async (checks) => {
+    const bytes = await buildDefinitionHandout();
+    const text = await extractFromBytes(bytes);
+
+    // A deliberately lazy model: it returns one definition and stops, which is
+    // exactly the failure this mode exists to cover.
+    const lazy = async (): Promise<AiHighlight[]> => [
+      { text: DEF_INFLATION, importance: 'high', reason: 'Key definition' },
+    ];
+
+    const selectiveSettings = settings({
+      highlight: { ...DEFAULT_SETTINGS.highlight, ...COVERAGE_PRESETS.selective },
+    });
+    const completeSettings = settings({
+      highlight: { ...DEFAULT_SETTINGS.highlight, ...COVERAGE_PRESETS.complete },
+    });
+
+    const selective = await processHandout({
+      bytes,
+      courseCode: 'ECO401',
+      handoutName: 'Handout 01.pdf',
+      settings: selectiveSettings,
+      pool: stubPool(selectiveSettings),
+      onProgress: noop,
+      onLog: noop,
+      analyze: lazy,
+    });
+
+    const complete = await processHandout({
+      bytes,
+      courseCode: 'ECO401',
+      handoutName: 'Handout 01.pdf',
+      settings: completeSettings,
+      pool: stubPool(completeSettings),
+      onProgress: noop,
+      onLog: noop,
+      analyze: lazy,
+    });
+
+    checks.equal('the lazy model alone marks a single passage', selective.highlightCount, 1);
+    checks.assert(
+      'complete mode recovers what the model skipped',
+      complete.highlightCount > selective.highlightCount,
+      `${selective.highlightCount} → ${complete.highlightCount} highlight(s)`,
+    );
+    checks.assert(
+      'the recovery came from the rule sweep',
+      complete.coverage.ruleBasedAdded >= 4,
+      `${complete.coverage.ruleBasedAdded} candidate(s) added`,
+    );
+
+    // Each examinable statement must actually resolve to page coordinates.
+    const resolved = matchHighlights(
+      text,
+      [...(await lazy()), ...sweepForCues(text)],
+      completeSettings.highlight,
+    );
+    const marked = resolved.matched.map((match) => match.matchedText).join(' || ');
+    const expected: [string, string][] = [
+      ['inflation definition', DEF_INFLATION],
+      ['opportunity cost definition', DEF_OPPORTUNITY],
+      ['elasticity definition', DEF_ELASTICITY],
+      ['law of demand', RULE_DEMAND],
+      ['market structure classification', CLASS_MARKET],
+      ['real interest rate formula', FORMULA_REAL],
+    ];
+    for (const [label, sentence] of expected) {
+      const needle = squashSpace(sentence.toLowerCase()).replace(/\.$/, '');
+      checks.assert(`${label} is highlighted`, marked.includes(needle.slice(0, 60)));
+    }
+
+    checks.assert(
+      'both selective and complete stay well under a wall of yellow',
+      complete.coverage.share < 0.6,
+      `${(complete.coverage.share * 100).toFixed(1)}% of the text marked`,
+    );
+    checks.assert(
+      'the page with no examinable content is reported, not silently skipped',
+      complete.coverage.pagesWithoutHighlights.includes(3),
+      `pages without highlights: ${complete.coverage.pagesWithoutHighlights.join(', ') || 'none'}`,
+    );
+    checks.equal('the output still validates', complete.validation.ok, true);
   });
 
   // ---------------------------------------------------- scanned handout

@@ -139,3 +139,79 @@ export async function buildScannedHandout(): Promise<Uint8Array> {
   page.drawImage(image, { x: 0, y: 0, width: 595, height: 842 });
   return doc.save({ useObjectStreams: false });
 }
+
+/** Definitions, a formula and a classification, spread over several pages. */
+export const DEF_INFLATION =
+  'Inflation is defined as a sustained increase in the general price level of an economy.';
+export const DEF_OPPORTUNITY =
+  'Opportunity cost refers to the value of the next best alternative that is forgone.';
+export const DEF_ELASTICITY =
+  'Price elasticity of demand is known as the responsiveness of quantity demanded to price.';
+export const RULE_DEMAND =
+  'The law of demand states that the quantity demanded falls as the price of a good rises.';
+export const CLASS_MARKET =
+  'There are four main types of market structure studied in introductory economics courses.';
+export const FORMULA_REAL =
+  'The real interest rate is given by the nominal interest rate minus the rate of inflation.';
+
+/**
+ * A handout whose examinable content is explicit, used to measure how much of
+ * it survives when the model itself is unhelpful.
+ */
+export async function buildDefinitionHandout(): Promise<Uint8Array> {
+  const doc = await PDFDocument.create();
+  const font = await doc.embedFont(StandardFonts.Helvetica);
+  const bold = await doc.embedFont(StandardFonts.HelveticaBold);
+  const ink = rgb(0.1, 0.1, 0.12);
+
+  const write = (title: string, lines: readonly string[], footer?: readonly string[]) => {
+    const page = doc.addPage([595, 842]);
+    let y = 780;
+    page.drawText(title, { x: 50, y, size: 15, font: bold, color: ink });
+    y -= 30;
+    for (const line of lines) {
+      page.drawText(line, { x: 50, y, size: 10.5, font, color: ink });
+      y -= 17;
+    }
+    if (footer) {
+      let fy = 120;
+      for (const line of footer) {
+        page.drawText(line, { x: 50, y: fy, size: 9, font, color: ink });
+        fy -= 12;
+      }
+    }
+  };
+
+  write(
+    'ECO401 — Lecture 01',
+    [
+      'This opening paragraph simply welcomes you to the course and sets expectations.',
+      DEF_INFLATION,
+      'We will return to this idea repeatedly throughout the remainder of the course.',
+      DEF_OPPORTUNITY,
+      'Students often find the second idea more intuitive than the first one here.',
+      DEF_ELASTICITY,
+    ],
+    [BOOKSHOP_LINE_A, BOOKSHOP_LINE_B],
+  );
+
+  write('ECO401 — Lecture 01 continued', [
+    'The next section builds on the definitions introduced on the previous page.',
+    RULE_DEMAND,
+    'Worked examples for this rule appear in the accompanying exercise booklet.',
+    CLASS_MARKET,
+    'Each of those structures is discussed in detail in a later lecture of the course.',
+    FORMULA_REAL,
+  ]);
+
+  // Deliberately free of examinable content, so the gap report has something
+  // real to flag rather than a page that merely looks empty.
+  write('ECO401 — Closing remarks', [
+    'That concludes the material for this week and we hope you enjoyed the discussion.',
+    'Please attend the weekly session and bring any questions that you may still have.',
+    'The discussion forum remains open for the rest of the term for general questions.',
+    'We look forward to seeing your participation in the activities planned for you.',
+  ]);
+
+  return doc.save({ useObjectStreams: false });
+}

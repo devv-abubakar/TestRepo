@@ -23,8 +23,6 @@ import { rangeToRects } from './geometry';
 const MIN_QUOTE_CHARS = 14;
 /** A sentence pulled out of a longer quote may be a little shorter. */
 const MIN_SENTENCE_CHARS = 10;
-/** Hard ceiling on the share of a page's characters that may be highlighted. */
-const MAX_PAGE_COVERAGE = 0.32;
 /**
  * Absolute allowance so the ceiling cannot starve a sparse page. A title
  * slide or a page holding one definition has few characters, and a third of
@@ -33,6 +31,18 @@ const MAX_PAGE_COVERAGE = 0.32;
 const MIN_COVERAGE_CHARS = 240;
 /** Two spans resolving to nearly the same range are treated as one. */
 const DUPLICATE_OVERLAP = 0.7;
+/**
+ * How far the confidence floor may be relaxed for a second attempt, and how
+ * much of the quote's wording the relaxed match must still account for.
+ *
+ * Lowering the floor alone would start highlighting the wrong sentence. Pairing
+ * it with a token check does not: a match that contains almost every word of
+ * the quote is the right passage even when PDF extraction mangled the spacing
+ * or dropped a character.
+ */
+const RELAXED_FLOOR_DROP = 0.1;
+const RELAXED_FLOOR_MIN = 0.74;
+const RELAXED_TOKEN_COVERAGE = 0.9;
 
 const IMPORTANCE_RANK: Record<Importance, number> = { low: 0, medium: 1, high: 2 };
 
@@ -138,7 +148,11 @@ export function findFuzzy(haystack: string, needle: string, floor: number): (Spa
   return best;
 }
 
-/** Exact first, fuzzy second, across every page of the document. */
+/**
+ * Exact first, fuzzy second, and finally a relaxed attempt that has to prove
+ * itself on word coverage. Each step is strictly more permissive, so the
+ * cheapest and safest answer always wins.
+ */
 function locate(doc: DocumentText, needle: string, floor: number): PageMatch | null {
   for (const page of doc.pages) {
     const at = page.normalized.indexOf(needle);
@@ -146,14 +160,42 @@ function locate(doc: DocumentText, needle: string, floor: number): PageMatch | n
       return { pageIndex: page.pageIndex, start: at, end: at + needle.length, confidence: 1 };
     }
   }
-  let best: PageMatch | null = null;
-  for (const page of doc.pages) {
-    const hit = findFuzzy(page.normalized, needle, floor);
-    if (hit && (best === null || hit.confidence > best.confidence)) {
-      best = { pageIndex: page.pageIndex, start: hit.start, end: hit.end, confidence: hit.confidence };
+
+  const search = (threshold: number): PageMatch | null => {
+    let best: PageMatch | null = null;
+    for (const page of doc.pages) {
+      const hit = findFuzzy(page.normalized, needle, threshold);
+      if (hit && (best === null || hit.confidence > best.confidence)) {
+        best = { pageIndex: page.pageIndex, start: hit.start, end: hit.end, confidence: hit.confidence };
+      }
     }
+    return best;
+  };
+
+  const strict = search(floor);
+  if (strict) return strict;
+
+  const relaxedFloor = Math.max(RELAXED_FLOOR_MIN, floor - RELAXED_FLOOR_DROP);
+  if (relaxedFloor >= floor) return null;
+  const relaxed = search(relaxedFloor);
+  if (!relaxed) return null;
+
+  const page = doc.pages.find((entry) => entry.pageIndex === relaxed.pageIndex);
+  if (!page) return null;
+  const matched = page.normalized.slice(relaxed.start, relaxed.end);
+  return tokenCoverage(needle, matched) >= RELAXED_TOKEN_COVERAGE ? relaxed : null;
+}
+
+/** Share of the needle's meaningful tokens that appear in the match. */
+function tokenCoverage(needle: string, matched: string): number {
+  const wanted = tokenize(needle).filter((token) => token.length >= 3);
+  if (wanted.length === 0) return 0;
+  const have = new Set(tokenize(matched));
+  let hits = 0;
+  for (const token of wanted) {
+    if (have.has(token)) hits += 1;
   }
-  return best;
+  return hits / wanted.length;
 }
 
 function overlapRatio(a: Span, b: Span): number {
@@ -232,7 +274,8 @@ export function matchHighlights(
       return `per-page highlight cap (${settings.maxPerPage}) reached`;
     }
     const length = span.end - span.start;
-    const allowance = Math.max(page.normalized.length * MAX_PAGE_COVERAGE, MIN_COVERAGE_CHARS);
+    const ceiling = Math.min(Math.max(settings.pageCoverageCeiling, 0.1), 0.95);
+    const allowance = Math.max(page.normalized.length * ceiling, MIN_COVERAGE_CHARS);
     // The first span on a page always gets through; the ceiling governs the rest.
     if (budget.count > 0 && budget.chars + length > allowance) {
       return 'page coverage ceiling reached — kept the output from over-highlighting';

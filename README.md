@@ -20,6 +20,7 @@ analysed at the same time.
 
 - [What it does](#what-it-does)
 - [The API key pool](#the-api-key-pool)
+- [Coverage: making sure nothing is missed](#coverage-making-sure-nothing-is-missed)
 - [Highlighting accuracy](#highlighting-accuracy)
 - [Installation](#installation)
 - [Local development](#local-development)
@@ -42,6 +43,8 @@ analysed at the same time.
 Select root folder → detect course folders → detect handouts → build queue
    → extract PDF text (OCR if the handout is a scan)
    → split into page-aligned parts and analyse them in parallel across your API keys
+   → sweep again for what the first pass missed, then once more for every definition
+   → sweep the text with rule-based cues as a safety net
    → receive exact-text spans as structured JSON
    → validate the response, reject anything not in the source
    → match each span to real page coordinates
@@ -63,6 +66,9 @@ Features:
   long it has been running. Every number comes from queue state — there is no simulated progress.
 - **A pool of API keys.** Several keys are rotated, rate-limited keys step aside automatically, and
   the activity table shows what each key is doing right now. See [the next section](#the-api-key-pool).
+- **Coverage you can check.** Multiple analysis passes plus a rule-based definition sweep, and a
+  per-handout report of how much was marked and which pages got nothing. See
+  [Coverage](#coverage-making-sure-nothing-is-missed).
 - **Controlled concurrency.** 1–6 handouts in flight, configurable, with a separate ceiling on
   concurrent AI requests. One document is loaded, used and released at a time, so a 300-handout
   batch stays within browser memory.
@@ -123,6 +129,92 @@ Key values are never written to the log, the console, or an error message — on
 
 ---
 
+## Coverage: making sure nothing is missed
+
+A single selective pass over a handout **will** leave definitions behind. That is not a prompt that
+needs rewording — it is what asking a model to be brief does. So completeness is built from four
+things working together, and you choose how hard they push.
+
+### Coverage modes
+
+| Mode | AI passes per ~12,000 chars | Per-page cap | Page ceiling | Rule sweep | What it is for |
+| --- | --- | --- | --- | --- | --- |
+| Selective | 1 | 6 | 35% | off | The cleanest page. Accepts that some material is left unmarked. |
+| Balanced | 2 | 10 | 50% | on | First pass plus a gap sweep. |
+| **Complete** (default) | 3 | uncapped | 75% | on | First pass, gap sweep, structured definition sweep. Marks the most. |
+
+### 1. A prompt that matches the mode
+
+In Complete mode the model is told, in these words, that the student will revise **only** the marked
+passages and must still be able to answer any exam question — to mark every definition, rule,
+formula, classification, process step, distinction and examinable fact, and that *when in doubt,
+include it*. In Selective mode it is told the opposite. The per-request highlight ceiling scales with
+the mode too (3 / 7 / 12 per page).
+
+### 2. A gap sweep
+
+The second pass gets the same text **plus the list of what the first pass already selected**, and is
+asked only for what is missing — with an explicit nudge towards definitions, formulas and
+classifications, which first passes overlook most often. The exclusion list is what makes this
+recover misses instead of returning the same spans again.
+
+### 3. A structured sweep
+
+The third pass (Complete only) asks by category rather than open-endedly: *the sentence that defines
+each term that is defined anywhere in this content; the sentence stating each formula, rule or law;
+the sentence introducing each classification, list of types, steps, characteristics, advantages or
+disadvantages; each numeric fact, date or named person.* Asking for "every defined term" recovers
+material that "find the important passages" does not.
+
+### 4. A rule-based safety net — no AI involved
+
+Independently of the model, the extracted text is scanned for cues that are examinable almost by
+construction, and the sentences carrying them are added as candidates:
+
+- **Definitions** — *is/are defined as, is called, is known as, refers to, stands for, by definition*
+- **Formulas and rules** — *formula, equation, is given by, is calculated as, theorem, law of, states that*, and any `a = b` pattern
+- **Classifications** — *types of, kinds of, categories, classified into, divided into, consists of, components of*
+- **Characteristics** — *characteristics of, features of, functions of, advantages, disadvantages, objectives of*
+- **Processes** — *steps are/involved, stages of, phases of, the following are*
+- **Enumerations** — *there are four…, three main types…*
+- **Distinctions** — *difference between, differs from, in contrast to, whereas, unlike*
+
+Boilerplate that matches by accident (the bookshop line, copyright notices, page headers) is
+excluded, and a page can contribute at most 14 of these. Nothing is invented: each candidate is a
+sentence taken verbatim from the page's own text, so it goes through exactly the same matching and
+verification as a model-supplied span. This costs no extra AI requests.
+
+In the test suite, a deliberately unhelpful model that returns **one** of a handout's six
+examinable statements still ends with **all six highlighted** — the sweeps and the rule-based net
+recover the other five.
+
+### 5. A report, so you can verify rather than hope
+
+Every handout records:
+
+- the share of its text that was highlighted (shown in the Handouts table)
+- **which pages received no highlight at all**, logged as a warning and counted in the dashboard's
+  *Unmarked pages* tile
+- how many candidates could not be located verbatim, and how many the rule sweep added
+- how many AI requests it cost
+
+A page with real text and nothing marked is the signal to check that page yourself. The app tells
+you where to look instead of leaving you to discover it in the exam hall.
+
+### What this still is not
+
+Complete mode marks far more and misses far less, but no automated system can promise that reading
+only the highlights is enough for full marks. That is why every output carries this line, and why it
+is not configurable away:
+
+> **AI Study Highlight:** The highlighted content is AI-assisted study guidance intended to help VU
+> students identify important concepts for revision. Students should review the complete handout and
+> use their own judgment.
+
+Use the coverage figures and the unmarked-pages warning as your check, and skim the pages they flag.
+
+---
+
 ## Highlighting accuracy
 
 This is the part the application is actually judged on, so it is worth describing precisely.
@@ -140,22 +232,30 @@ The matching pipeline:
 3. Failing that, a scored fuzzy search runs: anchor tokens locate candidate windows, and a bounded
    edit-distance similarity picks the best one. **Anything below the confidence floor (default 90%)
    is logged, never highlighted.**
-4. A span that straddles a page or column break — where no single page holds it — is matched
+4. If that still fails, one relaxed attempt runs at a lower floor and must then prove itself: at
+   least 90% of the quote's words have to appear in the matched text. Lowering the floor alone would
+   start highlighting the wrong sentence; pairing it with a word-coverage check recovers quotes that
+   PDF extraction mangled without that risk.
+5. A span that straddles a page or column break — where no single page holds it — is matched
    sentence by sentence instead, so each highlighted fragment is still verbatim source text.
-5. Match boundaries are snapped outwards to whole words, so a highlight never starts mid-word.
-6. Matched character ranges are converted back to rectangles through a character-level map built
+6. Match boundaries are snapped outwards to whole words, so a highlight never starts mid-word.
+7. Matched character ranges are converted back to rectangles through a character-level map built
    during extraction, then merged per visual line.
 
 Guards against over-highlighting:
 
-| Guard | Default | What it does |
+| Guard | Default (Complete mode) | What it does |
 | --- | --- | --- |
-| Prompt discipline | ~1–4 per page | The model is told to be selective and is given an explicit per-chunk ceiling. |
-| Minimum importance | `medium` | Low-importance spans are dropped. |
-| Maximum per page | 6 | Hard cap, highest-importance spans first. |
-| Page coverage ceiling | 32% | Highlights may not cover more than this share of a page's characters. A sparse page is always allowed at least one highlight. |
-| Duplicate detection | 70% overlap | Two spans resolving to the same range count once. |
+| Prompt ceiling | 12 per page per pass | The model is given an explicit per-request highlight ceiling. |
+| Minimum importance | `low` | Tightened to `medium` in Selective mode. |
+| Maximum per page | uncapped | 6 in Selective, 10 in Balanced. |
+| Page coverage ceiling | 75% | Highlights may not cover more than this share of a page's characters — 35% in Selective mode. A sparse page is always allowed at least one highlight. |
+| Duplicate detection | 70% overlap | Two spans resolving to the same range count once, across all passes. |
 | Minimum quote length | 14 characters | Shorter quotes cannot be matched safely and are refused. |
+
+The ceiling is the guard that actually matters, and it is enforced: on a page where a greedy model
+offers *every* sentence, the output stops at the configured share and the excess is reported in the
+log rather than drawn.
 
 Highlights are written as **real PDF `/Highlight` annotations** with an explicit appearance stream
 using the `Multiply` blend mode — so the mark is a genuine highlight (selectable, printable,
@@ -272,9 +372,11 @@ what makes a 300-handout batch practical.
 - **Temperature** defaults to `0.1`. Keep it low: verbatim quoting needs a literal model.
 - **Test Connection** performs a real round-trip **for every key in the pool** and reports each one
   separately, so one bad key out of ten is found before the batch starts rather than during it.
-- **Requests per handout:** one per ~12,000 characters of extracted text. A 20-page handout is
-  typically 2–4 requests, so ~300 handouts is roughly 700–1,200 requests in total — within a couple
-  of free-tier projects' daily budgets.
+- **Requests per handout:** one per ~12,000 characters of extracted text **per analysis pass**. In
+  the default Complete mode that is three passes, so a 20-page handout is typically 6–12 requests and
+  ~300 handouts is roughly 2,000–3,600 requests. Budget about three free-tier projects for a full
+  batch, or drop to Balanced (two passes) or Selective (one) if you have fewer keys. The pre-flight
+  summary shows the mode's cost and how many requests your pool has left today.
 
 Pool settings, all per key:
 
@@ -424,8 +526,8 @@ TypeScript runs with `strict`, `noUnusedLocals`, `noUnusedParameters` and
 ## Testing and acceptance results
 
 ```
-npm test         →  7 files, 76 tests passed
-npm run test:e2e →  6 tests passed (8 pipeline scenarios + UI, folder scanning, key pool)
+npm test         →  8 files, 107 tests passed
+npm run test:e2e →  7 tests passed (9 pipeline scenarios + UI, folder scanning, key pool, coverage)
 npm run lint     →  clean
 npm run build    →  clean
 ```
@@ -443,6 +545,7 @@ with mangled whitespace and a line-break hyphen that must still match.
 | 4 | Original unchanged | **Pass** — input bytes compared before and after |
 | 5 | Output opens | **Pass** — re-opened and re-parsed by the validator |
 | 6 | Important text accurately highlighted in yellow | **Pass** — 71% of sampled pixels inside the highlight are yellow; dark text pixels remain, so the text is still readable |
+| 6b | Nothing examinable left unmarked when the model is unhelpful | **Pass** — see the coverage table below |
 | 7 | Google Play link clickable and correct | **Pass** — exact URL present as a `/Link` annotation |
 | 8 | WhatsApp number clickable and opens WhatsApp | **Pass** — `https://wa.me/923477776639` present as a `/Link` annotation |
 | 9 | Existing VU bookshop text preserved | **Pass** — text intact, contact appended after `.com` |
@@ -452,6 +555,24 @@ with mangled whitespace and a line-break hyphen that must still match.
 | 13 | Existing output skipped unless re-processing | **Pass** — detected and reported in the pre-flight summary |
 | 14 | Scanned PDF → OCR fallback or clear status | **Pass** — scan detected, OCR ran, recognised span highlighted on the image, output validated. Without the optional language data the failure is reported clearly instead |
 | 15 | 300-handout batch stays stable | **Partially verified** — see below |
+
+Coverage scenarios, all covered by tests:
+
+| Behaviour | Result |
+| --- | --- |
+| A model returning 1 of 6 examinable statements → all 6 highlighted | **Pass** — 1 → 6 highlights; each definition, the rule, the classification and the formula verified individually |
+| The recovery is attributable to the rule sweep | **Pass** — 5 candidates added without an extra AI request |
+| A page with no examinable content is reported, not silently skipped | **Pass** — flagged in the coverage report and logged |
+| Complete mode marks more than Selective, both inside their ceilings | **Pass** — 31% against a 35% ceiling, 74% against 75% |
+| Each sweep is told what earlier passes already found | **Pass** — exclusion list verified in the request bodies |
+| A duplicate span returned by a later pass is collapsed | **Pass** |
+| A failing sweep keeps the first pass's results | **Pass** — the handout is not failed over an extra request |
+| A failing *first* pass still fails the handout | **Pass** |
+| Pass counts per mode: 1 / 2 / 3 | **Pass** |
+| Rule sweep catches definitions, formulas, classifications, processes, distinctions | **Pass** — 11 cue tests |
+| Rule sweep ignores narrative, boilerplate and fragments | **Pass** |
+| Rule-sweep candidates are verbatim slices of the page's own text | **Pass** |
+| Coverage mode UI rewrites the advanced fields it governs | **Pass** |
 
 Key-pool scenarios, all covered by tests:
 
@@ -489,8 +610,14 @@ end-to-end here.
   confidence are dropped rather than highlighted at the wrong place.
 - Right-to-left and vertically-set text is not coordinate-mapped; such runs would be highlighted as
   whole runs rather than partial spans.
-- Highlighting accuracy depends on the model you choose. A stronger model is noticeably more
-  selective; the confidence floor and coverage ceiling protect against bad output either way.
+- Highlighting accuracy depends on the model you choose. The sweeps and the rule-based net exist
+  precisely so a small, fast model still produces good coverage, but a stronger model needs fewer
+  passes to get there.
+- **Complete mode cannot guarantee full marks from the highlights alone.** It marks far more and
+  misses far less, and it tells you which pages got nothing — but the note asking students to review
+  the whole handout stays in every output for a reason.
+- The rule-based sweep is tuned for English handouts. A handout written in another language still
+  gets the AI passes, but the cue patterns will not fire.
 - A 300-handout batch has not been run end-to-end (see Test 15).
 - The pool's orchestration is tested against a stubbed HTTP layer, not against Gemini itself: the
   sandbox this was built in cannot reach the provider. Rotation, failover, spacing, budgets and

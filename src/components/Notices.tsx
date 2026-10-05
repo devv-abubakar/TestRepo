@@ -119,9 +119,27 @@ export function ConfirmDialog() {
             </div>
           ))}
         </dl>
+        <dl className="mt-3 space-y-1.5 border-t border-edge pt-3 text-sm">
+          <div className="flex justify-between gap-4">
+            <dt className="text-muted">Coverage mode</dt>
+            <dd className="font-semibold capitalize text-ink">{confirm.coverage}</dd>
+          </div>
+          <div className="flex justify-between gap-4">
+            <dt className="text-muted">AI requests per ~12,000 characters</dt>
+            <dd className="font-semibold tabular-nums text-ink">{confirm.passesPerChunk}</dd>
+          </div>
+          {confirm.poolCapacityToday !== null ? (
+            <div className="flex justify-between gap-4">
+              <dt className="text-muted">Requests left in the key pool today</dt>
+              <dd className="font-semibold tabular-nums text-ink">
+                {confirm.poolCapacityToday.toLocaleString()}
+              </dd>
+            </div>
+          ) : null}
+        </dl>
         <p className="mt-3 text-xs text-muted">
-          Each handout needs one AI request per ~12,000 characters of text, so longer handouts use more
-          requests.
+          A 20-page handout is roughly {confirm.passesPerChunk * 3} requests in this mode. If the pool
+          runs out, completed handouts are kept and you can resume once the quota resets.
         </p>
         <div className="mt-5 flex justify-end gap-2">
           <button type="button" className="btn-secondary" onClick={cancel}>

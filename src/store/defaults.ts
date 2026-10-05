@@ -1,4 +1,4 @@
-import type { ApiKeyEntry, Settings } from '../types';
+import type { ApiKeyEntry, CoverageMode, HighlightSettings, Settings } from '../types';
 import { DEFAULT_HIGHLIGHT_COLOR, DEFAULT_SUFFIX } from '../constants';
 import { PROVIDERS } from '../services/ai';
 
@@ -15,6 +15,54 @@ export function newKeyEntry(index: number): ApiKeyEntry {
   };
 }
 
+/**
+ * The knobs each coverage mode sets. Selecting a mode writes these into the
+ * settings so the advanced fields always show what is actually in force, and
+ * stay editable afterwards.
+ */
+export const COVERAGE_PRESETS: Record<
+  CoverageMode,
+  Pick<
+    HighlightSettings,
+    'coverage' | 'minImportance' | 'maxPerPage' | 'pageCoverageCeiling' | 'minConfidence' | 'ruleBasedSweep'
+  >
+> = {
+  selective: {
+    coverage: 'selective',
+    minImportance: 'medium',
+    maxPerPage: 6,
+    // Kept on the slider's 0.05 step grid, so the control cannot display a
+    // value that differs from the one actually in force.
+    pageCoverageCeiling: 0.35,
+    minConfidence: 0.9,
+    ruleBasedSweep: false,
+  },
+  balanced: {
+    coverage: 'balanced',
+    minImportance: 'low',
+    maxPerPage: 10,
+    pageCoverageCeiling: 0.5,
+    minConfidence: 0.9,
+    ruleBasedSweep: true,
+  },
+  complete: {
+    coverage: 'complete',
+    minImportance: 'low',
+    // Uncapped per page: the coverage ceiling is the limit that matters here.
+    maxPerPage: 0,
+    pageCoverageCeiling: 0.75,
+    minConfidence: 0.88,
+    ruleBasedSweep: true,
+  },
+};
+
+/** Rough number of AI requests each mode spends per chunk of text. */
+export const PASSES_PER_CHUNK: Record<CoverageMode, number> = {
+  selective: 1,
+  balanced: 2,
+  complete: 3,
+};
+
 export const DEFAULT_SETTINGS: Settings = {
   ai: {
     provider: 'gemini',
@@ -30,9 +78,7 @@ export const DEFAULT_SETTINGS: Settings = {
   highlight: {
     color: DEFAULT_HIGHLIGHT_COLOR,
     opacity: 0.38,
-    minImportance: 'medium',
-    maxPerPage: 6,
-    minConfidence: 0.9,
+    ...COVERAGE_PRESETS.complete,
   },
   content: {
     addStudyMessage: true,
