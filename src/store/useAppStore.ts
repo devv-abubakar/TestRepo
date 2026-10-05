@@ -11,6 +11,7 @@ import { create } from 'zustand';
 import type {
   ApiKeyEntry,
   Course,
+  CoverageMode,
   Handout,
   HandoutStatus,
   KeyStats,
@@ -54,7 +55,13 @@ import {
 } from '../services/persist';
 import { processHandout, type ProgressPatch } from '../services/pdf/process';
 import { buildZip, downloadBlob, downloadBytes } from '../services/zip';
-import { DEFAULT_SETTINGS, mergeSettings, newKeyEntry } from './defaults';
+import {
+  COVERAGE_PRESETS,
+  DEFAULT_SETTINGS,
+  mergeSettings,
+  newKeyEntry,
+  PASSES_PER_CHUNK,
+} from './defaults';
 
 const MAX_LOGS = 800;
 /** Upper bound on documents in flight; more risks browser memory. */
@@ -75,6 +82,11 @@ export interface ConfirmSummary {
   handouts: number;
   existingOutputs: number;
   toProcess: number;
+  coverage: CoverageMode;
+  /** AI requests this mode spends per ~12,000 characters of text. */
+  passesPerChunk: number;
+  /** Requests the key pool can still serve today, or null when unlimited. */
+  poolCapacityToday: number | null;
 }
 
 export interface AppState {
@@ -229,6 +241,8 @@ export const useAppStore = create<AppState>()((set, get) => {
             status: 'pending',
             highlightCount: 0,
             pageCount: 0,
+            pagesWithoutHighlights: 0,
+            coverageShare: 0,
             lowConfidenceSkipped: 0,
             usedOcr: false,
           };
@@ -371,6 +385,8 @@ export const useAppStore = create<AppState>()((set, get) => {
         highlightCount: outcome.highlightCount,
         lowConfidenceSkipped: outcome.lowConfidenceSkipped,
         pageCount: outcome.pageCount,
+        pagesWithoutHighlights: outcome.coverage.pagesWithoutHighlights.length,
+        coverageShare: outcome.coverage.share,
         usedOcr: outcome.usedOcr,
         outputMode,
         outputName,
@@ -378,9 +394,12 @@ export const useAppStore = create<AppState>()((set, get) => {
         error: undefined,
       });
       set((current) => ({ totalHighlights: current.totalHighlights + outcome.highlightCount }));
+      const gaps = outcome.coverage.pagesWithoutHighlights.length;
       log(
-        'success',
-        `${id} — COMPLETE: ${outcome.highlightCount} highlight(s) across ${outcome.pageCount} page(s) ` +
+        gaps > 0 ? 'warn' : 'success',
+        `${id} — COMPLETE: ${outcome.highlightCount} highlight(s) across ${outcome.pageCount} page(s), ` +
+          `${(outcome.coverage.share * 100).toFixed(1)}% of the text marked` +
+          `${gaps > 0 ? `, ${gaps} page(s) with nothing marked` : ''} ` +
           `in ${((Date.now() - started) / 1000).toFixed(1)}s` +
           `${outputMode === 'written' ? `, saved as ${outputName}` : ''}.`,
         id,
@@ -564,6 +583,12 @@ export const useAppStore = create<AppState>()((set, get) => {
           content: { ...state.settings.content, ...(patch.content ?? {}) },
           output: { ...state.settings.output, ...(patch.output ?? {}) },
         };
+        // Choosing a coverage mode rewrites the knobs it governs, so the
+        // advanced fields always show what is actually in force.
+        const mode = patch.highlight?.coverage;
+        if (mode && mode !== state.settings.highlight.coverage) {
+          next.highlight = { ...next.highlight, ...COVERAGE_PRESETS[mode] };
+        }
         saveSettings(next);
         if (activePool) activePool.setLimits(poolLimits(next.ai));
         return { settings: next, connection: { state: 'idle', results: [] } };
@@ -697,12 +722,24 @@ export const useAppStore = create<AppState>()((set, get) => {
         );
       }).length;
 
+      const usable = settings.ai.keys.filter(
+        (entry) => entry.enabled && entry.key.trim().length > 0,
+      ).length;
+      const budget = settings.ai.dailyBudgetPerKey;
+      const spentToday = state.keyStats.reduce((sum, row) => sum + row.usedToday, 0);
+
       set({
         confirm: {
           courses: courses.length,
           handouts: order.length,
           existingOutputs: existing,
           toProcess: pendingQueue(state).length,
+          coverage: settings.highlight.coverage,
+          passesPerChunk: PASSES_PER_CHUNK[settings.highlight.coverage],
+          poolCapacityToday:
+            budget > 0 && providerMeta(settings.ai.provider).browserDirect
+              ? Math.max(0, usable * budget - spentToday)
+              : null,
         },
       });
     },

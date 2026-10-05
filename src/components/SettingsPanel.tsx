@@ -1,13 +1,41 @@
 import { useId } from 'react';
+import { PASSES_PER_CHUNK } from '../store/defaults';
 import { MAX_CONCURRENCY, useAppStore } from '../store/useAppStore';
-import type { Importance } from '../types';
+import type { CoverageMode, Importance } from '../types';
 import { ApiSettings } from './ApiSettings';
 import { Card, Field, Icon, Toggle } from './ui';
 
 const IMPORTANCE_OPTIONS: { value: Importance; label: string }[] = [
   { value: 'high', label: 'High only — strictest' },
-  { value: 'medium', label: 'Medium and above (recommended)' },
+  { value: 'medium', label: 'Medium and above' },
   { value: 'low', label: 'Everything the model returns' },
+];
+
+const COVERAGE_OPTIONS: {
+  value: CoverageMode;
+  title: string;
+  detail: string;
+}[] = [
+  {
+    value: 'selective',
+    title: 'Selective',
+    detail:
+      'One AI pass. The cleanest-looking page, but it will leave some definitions unmarked.',
+  },
+  {
+    value: 'balanced',
+    title: 'Balanced',
+    detail:
+      'Two AI passes — a first pass plus a gap sweep — and the rule-based definition sweep.',
+  },
+  {
+    value: 'complete',
+    title: 'Complete (recommended for revision)',
+    detail:
+      'Three AI passes: first pass, gap sweep, then a structured sweep for every definition, ' +
+      'formula and classification. Plus the rule-based sweep and loosened caps. Marks the most, ' +
+      'and costs about three times the AI requests.',
+  },
 ];
 
 export function SettingsPanel() {
@@ -44,9 +72,53 @@ export function SettingsPanel() {
             <ApiSettings />
           </section>
 
+          <section aria-labelledby={`${ids}-coverage`}>
+            <h3 id={`${ids}-coverage`} className="section-title mb-3">
+              How much to highlight
+            </h3>
+            <fieldset className="grid gap-2 md:grid-cols-3">
+              <legend className="sr-only">Coverage mode</legend>
+              {COVERAGE_OPTIONS.map((option) => {
+                const active = settings.highlight.coverage === option.value;
+                return (
+                  <label
+                    key={option.value}
+                    className={`cursor-pointer rounded-lg border p-3 text-sm transition-colors ${
+                      active ? 'border-brand bg-brand-soft' : 'border-edge bg-panel hover:bg-surface'
+                    }`}
+                  >
+                    <span className="flex items-start gap-2">
+                      <input
+                        type="radio"
+                        name={`${ids}-coverage-mode`}
+                        className="mt-1 accent-brand"
+                        checked={active}
+                        onChange={() =>
+                          patch({ highlight: { ...settings.highlight, coverage: option.value } })
+                        }
+                      />
+                      <span>
+                        <span className="block font-semibold text-ink">{option.title}</span>
+                        <span className="mt-0.5 block text-xs text-muted">{option.detail}</span>
+                        <span className="mt-1 block text-xs font-medium text-brand">
+                          ~{PASSES_PER_CHUNK[option.value]} AI request(s) per ~12,000 characters
+                        </span>
+                      </span>
+                    </span>
+                  </label>
+                );
+              })}
+            </fieldset>
+            <p className="mt-3 text-xs text-muted">
+              Even in Complete mode, highlights are study guidance rather than a guarantee: every
+              output carries a note asking students to review the full handout. Use the coverage
+              figures in the handout table to spot pages that received nothing.
+            </p>
+          </section>
+
           <section aria-labelledby={`${ids}-highlight`}>
             <h3 id={`${ids}-highlight`} className="section-title mb-3">
-              Highlighting
+              Highlighting — advanced
             </h3>
             <div className="grid gap-4 md:grid-cols-2">
               <Field label="Highlight colour" htmlFor={`${ids}-color`}>
@@ -106,6 +178,30 @@ export function SettingsPanel() {
               </Field>
 
               <Field
+                label={`Page coverage ceiling (${Math.round(settings.highlight.pageCoverageCeiling * 100)}%)`}
+                htmlFor={`${ids}-ceiling`}
+                hint="The most of a page's text that may be marked. The real guard against a wall of yellow."
+              >
+                <input
+                  id={`${ids}-ceiling`}
+                  type="range"
+                  min={0.2}
+                  max={0.95}
+                  step={0.05}
+                  className="w-full accent-brand"
+                  value={settings.highlight.pageCoverageCeiling}
+                  onChange={(event) =>
+                    patch({
+                      highlight: {
+                        ...settings.highlight,
+                        pageCoverageCeiling: Number(event.target.value),
+                      },
+                    })
+                  }
+                />
+              </Field>
+
+              <Field
                 label="Maximum highlights per page"
                 htmlFor={`${ids}-maxper`}
                 hint="0 removes the cap. The page coverage ceiling still applies."
@@ -145,6 +241,17 @@ export function SettingsPanel() {
                   }
                 />
               </Field>
+
+              <div className="flex items-end">
+                <Toggle
+                  checked={settings.highlight.ruleBasedSweep}
+                  onChange={(ruleBasedSweep) =>
+                    patch({ highlight: { ...settings.highlight, ruleBasedSweep } })
+                  }
+                  label="Rule-based definition sweep"
+                  hint="Marks sentences carrying definition, formula and classification cues even when the model skipped them. Costs no extra AI requests."
+                />
+              </div>
             </div>
           </section>
 

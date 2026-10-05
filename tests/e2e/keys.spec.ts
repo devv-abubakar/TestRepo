@@ -80,3 +80,43 @@ test('keeps key values out of storage unless asked', async ({ page }) => {
   await page.getByRole('button', { name: 'Settings' }).first().click();
   await expect(page.getByLabel('API key 1')).toHaveValue('AIza-secret-value');
 });
+
+/** The coverage control: what it promises, and what it changes. */
+test('exposes the coverage modes and their cost', async ({ page }) => {
+  await page.goto('/');
+  await page.evaluate(() => {
+    localStorage.clear();
+    indexedDB.deleteDatabase('vu-handouts-highlighter');
+  });
+  await page.reload();
+  await page.getByRole('button', { name: 'Settings' }).first().click();
+
+  // Complete is the default, since leaving material unmarked is the worse failure.
+  const complete = page.getByRole('radio', { name: /Complete/ });
+  await expect(complete).toBeChecked();
+  await expect(page.getByText(/structured sweep for every definition/)).toBeVisible();
+  await expect(page.getByText('~3 AI request(s) per ~12,000 characters')).toBeVisible();
+
+  // The advanced fields show what the chosen mode actually put in force.
+  await expect(page.getByLabel(/Page coverage ceiling/)).toHaveValue('0.75');
+  await expect(page.getByLabel('Minimum importance')).toHaveValue('low');
+  await expect(page.getByLabel('Maximum highlights per page')).toHaveValue('0');
+  await expect(page.getByRole('checkbox', { name: 'Rule-based definition sweep' })).toBeChecked();
+
+  // Switching mode rewrites those fields rather than hiding the change.
+  await page.getByRole('radio', { name: /Selective/ }).click();
+  await expect(page.getByLabel(/Page coverage ceiling/)).toHaveValue('0.35');
+  await expect(page.getByLabel('Minimum importance')).toHaveValue('medium');
+  await expect(page.getByLabel('Maximum highlights per page')).toHaveValue('6');
+  await expect(page.getByRole('checkbox', { name: 'Rule-based definition sweep' })).not.toBeChecked();
+  await expect(page.getByText(/leave some definitions unmarked/)).toBeVisible();
+
+  await page.getByRole('radio', { name: /Balanced/ }).click();
+  await expect(page.getByLabel(/Page coverage ceiling/)).toHaveValue('0.5');
+  await expect(page.getByText('~2 AI request(s) per ~12,000 characters')).toBeVisible();
+
+  // A mode choice survives a reload.
+  await page.reload();
+  await page.getByRole('button', { name: 'Settings' }).first().click();
+  await expect(page.getByRole('radio', { name: /Balanced/ })).toBeChecked();
+});

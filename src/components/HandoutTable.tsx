@@ -37,6 +37,7 @@ export function HandoutTable() {
               <th scope="col" className="py-2 pr-3 font-semibold">Handout</th>
               <th scope="col" className="py-2 pr-3 font-semibold">Status</th>
               <th scope="col" className="py-2 pr-3 text-right font-semibold">Highlights</th>
+              <th scope="col" className="py-2 pr-3 text-right font-semibold">Coverage</th>
               <th scope="col" className="py-2 pr-3 text-right font-semibold">Pages</th>
               <th scope="col" className="py-2 font-semibold">Output</th>
             </tr>
@@ -55,7 +56,14 @@ export function HandoutTable() {
                   ) : null}
                   {handout.lowConfidenceSkipped > 0 ? (
                     <span className="mt-1 block text-xs text-muted">
-                      {handout.lowConfidenceSkipped} low-confidence span(s) not highlighted
+                      {handout.lowConfidenceSkipped} candidate(s) could not be located and were not
+                      highlighted
+                    </span>
+                  ) : null}
+                  {handout.status === 'completed' && handout.pagesWithoutHighlights > 0 ? (
+                    <span className="mt-1 block text-xs text-warn">
+                      {handout.pagesWithoutHighlights} page(s) received no highlight — worth checking
+                      yourself
                     </span>
                   ) : null}
                 </td>
@@ -64,6 +72,11 @@ export function HandoutTable() {
                 </td>
                 <td className="py-2.5 pr-3 text-right tabular-nums text-ink">
                   {handout.status === 'completed' ? handout.highlightCount : '—'}
+                </td>
+                <td className="py-2.5 pr-3 text-right tabular-nums text-muted">
+                  {handout.status === 'completed'
+                    ? `${(handout.coverageShare * 100).toFixed(0)}%`
+                    : '—'}
                 </td>
                 <td className="py-2.5 pr-3 text-right tabular-nums text-muted">
                   {handout.pageCount > 0 ? handout.pageCount : '—'}

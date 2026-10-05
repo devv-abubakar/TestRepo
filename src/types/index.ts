@@ -193,6 +193,10 @@ export interface Handout extends HandoutRef {
   status: HandoutStatus;
   highlightCount: number;
   pageCount: number;
+  /** Pages that hold real text but received no highlight — worth a look. */
+  pagesWithoutHighlights: number;
+  /** Share of the handout's characters that ended up highlighted. */
+  coverageShare: number;
   /** Set when status is 'failed'. */
   error?: string;
   /** How the output was delivered. */
@@ -251,13 +255,32 @@ export interface LogEntry {
 
 // ------------------------------------------------------------------ settings
 
+/**
+ * How much of a handout to mark.
+ *
+ * `selective` keeps the page clean at the cost of leaving some material out.
+ * `complete` is the opposite trade: more AI passes, looser caps, and a
+ * rule-based sweep, so a student revising from the highlights alone is far
+ * less likely to hit a gap.
+ */
+export type CoverageMode = 'selective' | 'balanced' | 'complete';
+
 export interface HighlightSettings {
   color: string;
   opacity: number;
+  coverage: CoverageMode;
   minImportance: Importance;
+  /** 0 removes the cap. */
   maxPerPage: number;
+  /** Largest share of a page's characters that may be highlighted. */
+  pageCoverageCeiling: number;
   /** Matches below this confidence are logged, never drawn. */
   minConfidence: number;
+  /**
+   * Scan the text for definition, formula and classification cues and make
+   * sure those sentences are marked even when the model overlooked them.
+   */
+  ruleBasedSweep: boolean;
 }
 
 export interface ContentSettings {
@@ -305,6 +328,22 @@ export interface ValidationResult {
   checks: { name: string; ok: boolean; detail?: string }[];
 }
 
+/** Per-handout account of what was marked and what was not. */
+export interface CoverageReport {
+  /** Share of all extracted characters that were highlighted. */
+  share: number;
+  /** 1-based page numbers that hold substantial text but got nothing. */
+  pagesWithoutHighlights: number[];
+  /** Per-page highlighted share, indexed by page. */
+  perPageShare: number[];
+  /** Candidates the model returned that could not be located verbatim. */
+  unmatchedSpans: number;
+  /** Candidates added by the rule-based sweep rather than the model. */
+  ruleBasedAdded: number;
+  /** AI requests spent on this handout. */
+  aiRequests: number;
+}
+
 export interface ProcessOutcome {
   highlightCount: number;
   lowConfidenceSkipped: number;
@@ -312,4 +351,5 @@ export interface ProcessOutcome {
   usedOcr: boolean;
   bytes: Uint8Array;
   validation: ValidationResult;
+  coverage: CoverageReport;
 }
