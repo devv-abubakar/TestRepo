@@ -1,79 +1,75 @@
-import { useEffect, useMemo } from 'react';
-import { ensureFontsLoaded } from './core/fonts';
-import { Inspector } from './components/Inspector';
-import { Notices } from './components/Notices';
-import { SlideRail } from './components/SlideRail';
-import { Stage } from './components/Stage';
-import { TopBar } from './components/TopBar';
-import { Welcome } from './components/Welcome';
-import { useProject } from './store/useProject';
+import { useEffect } from 'react';
+import { CourseList } from './components/CourseList';
+import { Dashboard } from './components/Dashboard';
+import { FolderSelector } from './components/FolderSelector';
+import { HandoutTable } from './components/HandoutTable';
+import { Header } from './components/Header';
+import { LogPanel } from './components/LogPanel';
+import { Banner, ConfirmDialog, EnvironmentNotices, ResumeOffer } from './components/Notices';
+import { PdfPreview } from './components/PdfPreview';
+import { ProgressPanel } from './components/ProgressPanel';
+import { ResultsPanel } from './components/ResultsPanel';
+import { SettingsPanel } from './components/SettingsPanel';
+import { AI_NOTICE } from './constants';
+import { useAppStore } from './store/useAppStore';
 
 export default function App() {
-  const project = useProject((s) => s.project);
-  const images = useProject((s) => s.images);
-  const lang = useProject((s) => s.lang);
-  const restore = useProject((s) => s.restore);
-  const undo = useProject((s) => s.undo);
-  const redo = useProject((s) => s.redo);
-
-  const hasContent = useMemo(
-    () => project.slides.some((slide) => slide.imageId !== null),
-    [project.slides],
-  );
-
-  // Restore the previous session before the first paint that could show the
-  // welcome screen, so a returning user does not see it flash.
-  useEffect(() => {
-    void restore();
-  }, [restore]);
-
-  // Load every family up front. Canvas silently substitutes a system font for one
-  // that has not loaded, and the preview would then disagree with the export.
-  useEffect(() => {
-    const families = ['Plus Jakarta Sans', 'Space Grotesk', 'Manrope', 'DM Sans', 'Sora', 'Bricolage Grotesque'];
-    void ensureFontsLoaded(families, [500, 700, 800]).then(() => {
-      useProject.setState((s) => ({ revision: s.revision + 1 }));
-    });
-  }, []);
+  const init = useAppStore((state) => state.init);
+  const running = useAppStore((state) => state.running);
+  const hasFolder = useAppStore((state) => state.order.length > 0);
 
   useEffect(() => {
-    const onKey = (event: KeyboardEvent) => {
-      const target = event.target as HTMLElement | null;
-      const typing =
-        target?.tagName === 'INPUT' ||
-        target?.tagName === 'TEXTAREA' ||
-        target?.isContentEditable === true;
-      if (typing) return;
+    void init();
+  }, [init]);
 
-      const mod = event.metaKey || event.ctrlKey;
-      if (!mod || event.key.toLowerCase() !== 'z') return;
+  // Guard against losing an in-flight batch to an accidental navigation.
+  useEffect(() => {
+    if (!running) return;
+    const onBeforeUnload = (event: BeforeUnloadEvent) => {
       event.preventDefault();
-      if (event.shiftKey) redo();
-      else undo();
     };
-    window.addEventListener('keydown', onKey);
-    return () => window.removeEventListener('keydown', onKey);
-  }, [undo, redo]);
-
-  useEffect(() => {
-    document.documentElement.lang = lang;
-  }, [lang]);
-
-  const imageCount = Object.keys(images).length;
+    window.addEventListener('beforeunload', onBeforeUnload);
+    return () => window.removeEventListener('beforeunload', onBeforeUnload);
+  }, [running]);
 
   return (
-    <div className="flex h-dvh flex-col overflow-hidden bg-ink-950 text-ink-100">
-      <TopBar />
-      {hasContent || imageCount > 0 ? (
-        <main className="flex min-h-0 flex-1">
-          <SlideRail />
-          <Stage />
-          <Inspector />
-        </main>
-      ) : (
-        <Welcome />
-      )}
-      <Notices />
+    <div className="min-h-dvh">
+      <a
+        href="#main"
+        className="sr-only focus:not-sr-only focus:absolute focus:left-3 focus:top-3 focus:z-50 focus:rounded focus:bg-panel focus:px-3 focus:py-2"
+      >
+        Skip to content
+      </a>
+      <Header />
+
+      <main id="main" className="mx-auto max-w-7xl space-y-5 px-4 py-6 sm:px-6">
+        <ResumeOffer />
+        <Banner />
+        <EnvironmentNotices />
+        <SettingsPanel />
+        <FolderSelector />
+
+        {hasFolder ? (
+          <>
+            <Dashboard />
+            <ProgressPanel />
+            <div className="grid gap-5 lg:grid-cols-[18rem_1fr]">
+              <CourseList />
+              <HandoutTable />
+            </div>
+            <ResultsPanel />
+          </>
+        ) : null}
+
+        <LogPanel />
+      </main>
+
+      <footer className="mx-auto max-w-7xl px-4 pb-10 pt-2 text-xs text-muted sm:px-6">
+        {AI_NOTICE}
+      </footer>
+
+      <ConfirmDialog />
+      <PdfPreview />
     </div>
   );
 }

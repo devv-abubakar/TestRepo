@@ -1,124 +1,151 @@
+/** Small shared presentational pieces and inline icons. */
 import type { ReactNode } from 'react';
+import type { HandoutStatus, LogLevel } from '../types';
 
-export function Panel({
+export function Icon({ name, className = 'h-4 w-4' }: { name: IconName; className?: string }) {
+  return (
+    <svg
+      viewBox="0 0 24 24"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth={1.8}
+      strokeLinecap="round"
+      strokeLinejoin="round"
+      className={className}
+      aria-hidden="true"
+    >
+      {PATHS[name]}
+    </svg>
+  );
+}
+
+export type IconName =
+  | 'folder'
+  | 'play'
+  | 'stop'
+  | 'download'
+  | 'retry'
+  | 'settings'
+  | 'sun'
+  | 'moon'
+  | 'check'
+  | 'alert'
+  | 'info'
+  | 'chevron'
+  | 'eye'
+  | 'close'
+  | 'spark'
+  | 'external';
+
+const PATHS: Record<IconName, ReactNode> = {
+  folder: <path d="M3 7a2 2 0 0 1 2-2h3.6l2 2.5H19a2 2 0 0 1 2 2V18a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2Z" />,
+  play: <path d="M7 4.8v14.4L19.5 12Z" />,
+  stop: <rect x="6" y="6" width="12" height="12" rx="2" />,
+  download: <path d="M12 3v12m0 0 4.5-4.5M12 15 7.5 10.5M4 20h16" />,
+  retry: <path d="M20 12a8 8 0 1 1-2.6-5.9M20 4v4h-4" />,
+  settings: (
+    <>
+      <circle cx="12" cy="12" r="3" />
+      <path d="M12 2.5v3m0 13v3M4.2 7l2.6 1.5m10.4 6L19.8 16M4.2 16l2.6-1.5m10.4-6L19.8 7" />
+    </>
+  ),
+  sun: (
+    <>
+      <circle cx="12" cy="12" r="4" />
+      <path d="M12 2v2m0 16v2M2 12h2m16 0h2M5 5l1.5 1.5M17.5 17.5 19 19M19 5l-1.5 1.5M6.5 17.5 5 19" />
+    </>
+  ),
+  moon: <path d="M20 14.5A8.5 8.5 0 0 1 9.5 4a8.5 8.5 0 1 0 10.5 10.5Z" />,
+  check: <path d="M4.5 12.5 9 17l10.5-10.5" />,
+  alert: (
+    <>
+      <path d="M12 4 2.8 20h18.4Z" />
+      <path d="M12 10v4.5m0 2.5v.01" />
+    </>
+  ),
+  info: (
+    <>
+      <circle cx="12" cy="12" r="9" />
+      <path d="M12 11v5m0-8.5v.01" />
+    </>
+  ),
+  chevron: <path d="m8 10 4 4 4-4" />,
+  eye: (
+    <>
+      <path d="M2.5 12S6 5.5 12 5.5 21.5 12 21.5 12 18 18.5 12 18.5 2.5 12 2.5 12Z" />
+      <circle cx="12" cy="12" r="3" />
+    </>
+  ),
+  close: <path d="M6 6l12 12M18 6 6 18" />,
+  spark: <path d="M12 3l1.9 5.1L19 10l-5.1 1.9L12 17l-1.9-5.1L5 10l5.1-1.9Z" />,
+  external: <path d="M14 4h6v6m0-6-8.5 8.5M18 14v4a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h4" />,
+};
+
+export function Card({
   title,
-  children,
+  description,
   action,
+  children,
+  id,
 }: {
-  title?: string;
-  children: ReactNode;
+  title: string;
+  description?: string;
   action?: ReactNode;
+  children: ReactNode;
+  id?: string;
 }) {
   return (
-    <section className="rounded-2xl border border-white/[0.06] bg-ink-850/70 shadow-panel backdrop-blur-sm">
-      {title && (
-        <header className="flex items-center justify-between gap-3 border-b border-white/[0.05] px-4 py-3">
-          <h3 className="text-[11px] font-bold uppercase tracking-[0.14em] text-ink-400">{title}</h3>
-          {action}
-        </header>
-      )}
-      <div className="space-y-4 p-4">{children}</div>
+    <section className="card animate-fade-in p-5" id={id} aria-labelledby={id ? `${id}-title` : undefined}>
+      <header className="mb-4 flex flex-wrap items-start justify-between gap-3">
+        <div>
+          <h2 id={id ? `${id}-title` : undefined} className="text-base font-semibold text-ink">
+            {title}
+          </h2>
+          {description ? <p className="mt-0.5 text-sm text-muted">{description}</p> : null}
+        </div>
+        {action}
+      </header>
+      {children}
     </section>
   );
 }
 
-export function Field({
-  label,
-  hint,
-  children,
-  htmlFor,
-}: {
-  label: string;
-  hint?: string;
-  children: ReactNode;
-  htmlFor?: string;
-}) {
-  return (
-    <div className="space-y-1.5">
-      <div className="flex items-baseline justify-between gap-2">
-        <label htmlFor={htmlFor} className="text-xs font-semibold text-ink-200">
-          {label}
-        </label>
-        {hint && <span className="text-[10px] tabular-nums text-ink-500">{hint}</span>}
-      </div>
-      {children}
-    </div>
-  );
+const STATUS_STYLES: Record<HandoutStatus, string> = {
+  pending: 'bg-edge/60 text-muted',
+  processing: 'bg-brand-soft text-brand',
+  completed: 'bg-ok/15 text-ok',
+  failed: 'bg-bad/15 text-bad',
+  skipped: 'bg-warn/15 text-warn',
+};
+
+const STATUS_LABELS: Record<HandoutStatus, string> = {
+  pending: 'Pending',
+  processing: 'Processing',
+  completed: 'Completed',
+  failed: 'Failed',
+  skipped: 'Skipped',
+};
+
+export function StatusChip({ status }: { status: HandoutStatus }) {
+  return <span className={`chip ${STATUS_STYLES[status]}`}>{STATUS_LABELS[status]}</span>;
 }
 
-interface Option<T> {
-  value: T;
-  label: string;
-  title?: string;
-}
-
-export function Segmented<T extends string>({
-  value,
-  options,
-  onChange,
-  label,
-}: {
-  value: T;
-  options: Option<T>[];
-  onChange: (value: T) => void;
-  label: string;
-}) {
+export function ProgressBar({ value, label }: { value: number; label: string }) {
+  const percent = Math.min(100, Math.max(0, Math.round(value * 100)));
   return (
     <div
-      role="radiogroup"
+      role="progressbar"
+      aria-valuenow={percent}
+      aria-valuemin={0}
+      aria-valuemax={100}
       aria-label={label}
-      className="flex gap-1 rounded-xl border border-white/[0.06] bg-ink-900/80 p-1"
+      className="h-2.5 w-full overflow-hidden rounded-full bg-edge/70"
     >
-      {options.map((option) => {
-        const active = option.value === value;
-        return (
-          <button
-            key={option.value}
-            type="button"
-            role="radio"
-            aria-checked={active}
-            title={option.title ?? option.label}
-            onClick={() => onChange(option.value)}
-            className={`flex-1 rounded-lg px-2 py-1.5 text-[11px] font-semibold transition ${
-              active
-                ? 'bg-brand-500 text-white shadow-[0_2px_10px_-2px_rgba(51,93,255,0.8)]'
-                : 'text-ink-300 hover:bg-white/[0.05] hover:text-ink-100'
-            }`}
-          >
-            {option.label}
-          </button>
-        );
-      })}
+      <div
+        className="h-full rounded-full bg-brand transition-[width] duration-300 ease-out"
+        style={{ width: `${percent}%` }}
+      />
     </div>
-  );
-}
-
-export function Slider({
-  value,
-  min,
-  max,
-  step = 1,
-  onChange,
-  ariaLabel,
-}: {
-  value: number;
-  min: number;
-  max: number;
-  step?: number;
-  onChange: (value: number) => void;
-  ariaLabel: string;
-}) {
-  return (
-    <input
-      type="range"
-      aria-label={ariaLabel}
-      value={value}
-      min={min}
-      max={max}
-      step={step}
-      onChange={(e) => onChange(Number(e.target.value))}
-      className="h-1.5 w-full cursor-pointer appearance-none rounded-full bg-ink-700 accent-brand-400 [&::-webkit-slider-thumb]:h-3.5 [&::-webkit-slider-thumb]:w-3.5 [&::-webkit-slider-thumb]:appearance-none [&::-webkit-slider-thumb]:rounded-full [&::-webkit-slider-thumb]:bg-brand-400 [&::-webkit-slider-thumb]:shadow-[0_0_0_3px_rgba(51,93,255,0.22)]"
-    />
   );
 }
 
@@ -126,133 +153,61 @@ export function Toggle({
   checked,
   onChange,
   label,
+  hint,
 }: {
   checked: boolean;
-  onChange: (value: boolean) => void;
+  onChange: (next: boolean) => void;
   label: string;
+  hint?: string;
 }) {
   return (
-    <button
-      type="button"
-      role="switch"
-      aria-checked={checked}
-      aria-label={label}
-      onClick={() => onChange(!checked)}
-      className={`relative h-5 w-9 shrink-0 rounded-full transition ${
-        checked ? 'bg-brand-500' : 'bg-ink-700'
-      }`}
-    >
-      <span
-        className={`absolute top-0.5 h-4 w-4 rounded-full bg-white shadow transition-all ${
-          checked ? 'left-[18px]' : 'left-0.5'
-        }`}
+    <label className="flex cursor-pointer items-start gap-2.5 text-sm text-ink">
+      <input
+        type="checkbox"
+        checked={checked}
+        onChange={(event) => onChange(event.target.checked)}
+        className="mt-0.5 h-4 w-4 rounded border-edge accent-brand"
       />
-    </button>
+      <span>
+        {label}
+        {hint ? <span className="block text-xs text-muted">{hint}</span> : null}
+      </span>
+    </label>
   );
 }
 
-export function Row({ label, children }: { label: string; children: ReactNode }) {
+export function Field({
+  label,
+  hint,
+  htmlFor,
+  children,
+}: {
+  label: string;
+  hint?: string;
+  htmlFor: string;
+  children: ReactNode;
+}) {
   return (
-    <div className="flex items-center justify-between gap-3">
-      <span className="text-xs font-semibold text-ink-200">{label}</span>
+    <div>
+      <label className="label" htmlFor={htmlFor}>
+        {label}
+      </label>
       {children}
+      {hint ? <p className="mt-1 text-xs text-muted">{hint}</p> : null}
     </div>
   );
 }
 
-export function Button({
-  children,
-  onClick,
-  variant = 'secondary',
-  disabled,
-  full,
-  title,
-  type = 'button',
-}: {
-  children: ReactNode;
-  onClick?: () => void;
-  variant?: 'primary' | 'secondary' | 'ghost' | 'danger';
-  disabled?: boolean;
-  full?: boolean;
-  title?: string;
-  type?: 'button' | 'submit';
-}) {
-  const styles: Record<string, string> = {
-    primary:
-      'bg-brand-500 text-white hover:bg-brand-400 shadow-[0_6px_20px_-8px_rgba(51,93,255,0.9)] disabled:bg-ink-700 disabled:text-ink-400 disabled:shadow-none',
-    secondary:
-      'bg-white/[0.06] text-ink-100 hover:bg-white/[0.11] border border-white/[0.07] disabled:text-ink-500',
-    ghost: 'text-ink-300 hover:bg-white/[0.06] hover:text-ink-100 disabled:text-ink-600',
-    danger: 'text-red-300 hover:bg-red-500/12 hover:text-red-200',
-  };
-  return (
-    <button
-      type={type}
-      title={title}
-      disabled={disabled}
-      onClick={onClick}
-      className={`inline-flex items-center justify-center gap-1.5 rounded-xl px-3 py-2 text-xs font-bold transition disabled:cursor-not-allowed ${
-        styles[variant]
-      } ${full ? 'w-full' : ''}`}
-    >
-      {children}
-    </button>
-  );
-}
+export const LEVEL_ICON: Record<LogLevel, IconName> = {
+  info: 'info',
+  success: 'check',
+  warn: 'alert',
+  error: 'alert',
+};
 
-export function TextInput({
-  value,
-  onChange,
-  placeholder,
-  id,
-  maxLength,
-  dir,
-}: {
-  value: string;
-  onChange: (value: string) => void;
-  placeholder?: string;
-  id?: string;
-  maxLength?: number;
-  dir?: 'ltr' | 'rtl' | 'auto';
-}) {
-  return (
-    <input
-      id={id}
-      dir={dir ?? 'auto'}
-      value={value}
-      maxLength={maxLength}
-      placeholder={placeholder}
-      onChange={(e) => onChange(e.target.value)}
-      className="w-full rounded-xl border border-white/[0.07] bg-ink-900/80 px-3 py-2 text-sm text-ink-50 outline-none transition placeholder:text-ink-500 focus:border-brand-400/60 focus:ring-2 focus:ring-brand-500/20"
-    />
-  );
-}
-
-export function TextArea({
-  value,
-  onChange,
-  placeholder,
-  id,
-  rows = 2,
-  maxLength,
-}: {
-  value: string;
-  onChange: (value: string) => void;
-  placeholder?: string;
-  id?: string;
-  rows?: number;
-  maxLength?: number;
-}) {
-  return (
-    <textarea
-      id={id}
-      dir="auto"
-      rows={rows}
-      value={value}
-      maxLength={maxLength}
-      placeholder={placeholder}
-      onChange={(e) => onChange(e.target.value)}
-      className="w-full resize-none rounded-xl border border-white/[0.07] bg-ink-900/80 px-3 py-2 text-sm leading-snug text-ink-50 outline-none transition placeholder:text-ink-500 focus:border-brand-400/60 focus:ring-2 focus:ring-brand-500/20"
-    />
-  );
-}
+export const LEVEL_COLOR: Record<LogLevel, string> = {
+  info: 'text-muted',
+  success: 'text-ok',
+  warn: 'text-warn',
+  error: 'text-bad',
+};

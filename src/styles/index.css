@@ -4,60 +4,89 @@
 
 @layer base {
   :root {
+    --surface: 246 247 250;
+    --panel: 255 255 255;
+    --edge: 225 228 235;
+    --ink: 23 30 44;
+    --muted: 102 112 133;
+    --brand: 21 94 117;
+    --brand-soft: 224 242 247;
+    --accent: 180 83 9;
+    --ok: 21 128 61;
+    --warn: 180 83 9;
+    --bad: 185 28 28;
+    color-scheme: light;
+  }
+
+  :root[data-theme='dark'] {
+    --surface: 13 17 26;
+    --panel: 22 28 40;
+    --edge: 42 51 68;
+    --ink: 232 237 245;
+    --muted: 148 160 180;
+    --brand: 103 200 221;
+    --brand-soft: 17 48 58;
+    --accent: 252 211 77;
+    --ok: 74 222 128;
+    --warn: 251 191 36;
+    --bad: 248 113 113;
     color-scheme: dark;
   }
 
-  html,
-  body,
-  #root {
-    height: 100%;
+  html {
+    scroll-behavior: smooth;
   }
 
   body {
-    margin: 0;
-    background: #08090d;
-    -webkit-font-smoothing: antialiased;
-    text-rendering: optimizeLegibility;
+    @apply bg-surface text-ink antialiased;
+    font-feature-settings: 'cv11', 'ss01';
   }
 
-  /* Urdu is right-to-left; the editor chrome follows the interface language. */
-  html[lang='ur'] {
-    font-family: 'Plus Jakarta Sans', 'Noto Nastaliq Urdu', system-ui, sans-serif;
-  }
-
-  ::selection {
-    background: rgba(51, 93, 255, 0.35);
-  }
-
-  *:focus-visible {
-    outline: 2px solid #5987ff;
-    outline-offset: 2px;
-    border-radius: 6px;
-  }
-
-  ::-webkit-scrollbar {
-    width: 10px;
-    height: 10px;
-  }
-  ::-webkit-scrollbar-track {
-    background: transparent;
-  }
-  ::-webkit-scrollbar-thumb {
-    background: rgba(255, 255, 255, 0.09);
-    border: 3px solid transparent;
-    background-clip: content-box;
-    border-radius: 999px;
-  }
-  ::-webkit-scrollbar-thumb:hover {
-    background: rgba(255, 255, 255, 0.18);
-    background-clip: content-box;
+  :focus-visible {
+    @apply outline-none ring-2 ring-brand ring-offset-2 ring-offset-surface;
   }
 }
 
-@layer utilities {
-  /* Chrome renders a canvas with a faint edge when it is scaled; this keeps the
-     preview crisp at every zoom level. */
-  canvas {
-    image-rendering: auto;
+@layer components {
+  .card {
+    @apply rounded-xl border border-edge bg-panel shadow-card;
+  }
+
+  .section-title {
+    @apply text-sm font-semibold uppercase tracking-wide text-muted;
+  }
+
+  .btn {
+    @apply inline-flex items-center justify-center gap-2 rounded-lg border border-transparent px-4 py-2
+      text-sm font-medium transition-colors disabled:cursor-not-allowed disabled:opacity-50;
+  }
+
+  .btn-primary {
+    @apply btn bg-brand text-white hover:brightness-110;
+  }
+
+  .btn-secondary {
+    @apply btn border-edge bg-panel text-ink hover:bg-surface;
+  }
+
+  .btn-danger {
+    @apply btn border-edge bg-panel text-bad hover:bg-surface;
+  }
+
+  .btn-ghost {
+    @apply btn px-2 py-1 text-muted hover:text-ink;
+  }
+
+  .field {
+    @apply w-full rounded-lg border border-edge bg-panel px-3 py-2 text-sm text-ink
+      placeholder:text-muted/70 focus:border-brand;
+  }
+
+  .label {
+    @apply mb-1 block text-xs font-semibold uppercase tracking-wide text-muted;
+  }
+
+  .chip {
+    @apply inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-xs font-medium;
   }
 }
