@@ -9,17 +9,26 @@
  */
 import { create } from 'zustand';
 import type {
+  ApiKeyEntry,
   Course,
   Handout,
   HandoutStatus,
+  KeyStats,
   LogEntry,
   LogLevel,
   ProcessingProgress,
-  ProcessingStage,
   Settings,
 } from '../types';
 import { APP_NAME } from '../constants';
-import { testConnection, validateConfig } from '../services/ai';
+import {
+  KeyPool,
+  poolLimits,
+  providerMeta,
+  singleKeyPool,
+  testConnection,
+  validateConfig,
+  type ConnectionResult,
+} from '../services/ai';
 import { disposeOcr } from '../services/ocr';
 import {
   directoryHandleOf,
@@ -33,19 +42,23 @@ import {
 import {
   clearSession,
   getOutput,
+  loadKeyUsage,
   loadRootHandle,
   loadSettings,
   loadSnapshot,
   putOutput,
+  saveKeyUsage,
   saveRootHandle,
   saveSettings,
   saveSnapshot,
 } from '../services/persist';
-import { processHandout } from '../services/pdf/process';
+import { processHandout, type ProgressPatch } from '../services/pdf/process';
 import { buildZip, downloadBlob, downloadBytes } from '../services/zip';
-import { DEFAULT_SETTINGS, mergeSettings } from './defaults';
+import { DEFAULT_SETTINGS, mergeSettings, newKeyEntry } from './defaults';
 
-const MAX_LOGS = 600;
+const MAX_LOGS = 800;
+/** Upper bound on documents in flight; more risks browser memory. */
+export const MAX_CONCURRENCY = 6;
 
 /** Readers hold closures, so they live outside the reactive store. */
 const readers = new Map<string, ScannedHandout>();
@@ -76,7 +89,10 @@ export interface AppState {
   scanning: boolean;
   running: boolean;
   stopping: boolean;
-  progress: ProcessingProgress;
+  /** Live progress for every handout currently in flight, keyed by id. */
+  active: Record<string, ProcessingProgress>;
+  /** Live state of each pooled API key. */
+  keyStats: KeyStats[];
   logs: LogEntry[];
   totalHighlights: number;
   logsOpen: boolean;
@@ -88,11 +104,14 @@ export interface AppState {
   resumeOffer: ResumeOffer | null;
   confirm: ConfirmSummary | null;
   banner: { level: LogLevel; message: string } | null;
-  connection: { state: 'idle' | 'testing' | 'ok' | 'error'; message: string };
+  connection: { state: 'idle' | 'testing' | 'done'; results: ConnectionResult[] };
 
   // actions
   init(): Promise<void>;
   patchSettings(patch: Partial<Settings>): void;
+  addApiKey(): void;
+  updateApiKey(id: string, patch: Partial<ApiKeyEntry>): void;
+  removeApiKey(id: string): void;
   setTheme(theme: 'light' | 'dark'): void;
   selectFolder(): Promise<void>;
   selectFiles(files: FileList): Promise<void>;
@@ -116,6 +135,8 @@ export interface AppState {
 
 let logId = 0;
 let abortController: AbortController | null = null;
+/** The pool is shared by every handout in a batch, so limits are global. */
+let activePool: KeyPool | null = null;
 
 /**
  * Everything still waiting for a first pass. With "re-process existing
@@ -130,22 +151,33 @@ function pendingQueue(state: Pick<AppState, 'order' | 'handouts' | 'settings'>):
   });
 }
 
-const IDLE_PROGRESS: ProcessingProgress = {
-  handoutId: null,
-  courseCode: '',
-  handoutName: '',
-  page: 0,
-  pageCount: 0,
-  stage: 'idle',
-};
+function freshProgress(handout: Handout): ProcessingProgress {
+  return {
+    handoutId: handout.id,
+    courseCode: handout.courseCode,
+    handoutName: handout.fileName,
+    page: 0,
+    pageCount: handout.pageCount,
+    chunksDone: 0,
+    chunksTotal: 0,
+    stage: 'reading',
+    detail: 'Queued',
+    startedAt: Date.now(),
+  };
+}
 
 export const useAppStore = create<AppState>()((set, get) => {
   /** Append a log line, trimming the oldest once the cap is hit. */
-  const log = (level: LogLevel, message: string, handoutId?: string) => {
+  const log = (level: LogLevel, message: string, handoutId?: string, keyLabel?: string) => {
     logId += 1;
-    const entry: LogEntry = handoutId
-      ? { id: logId, at: Date.now(), level, message, handoutId }
-      : { id: logId, at: Date.now(), level, message };
+    const entry: LogEntry = {
+      id: logId,
+      at: Date.now(),
+      level,
+      message,
+      ...(handoutId === undefined ? {} : { handoutId }),
+      ...(keyLabel === undefined ? {} : { keyLabel }),
+    };
     set((state) => {
       const logs = [entry, ...state.logs];
       return { logs: logs.length > MAX_LOGS ? logs.slice(0, MAX_LOGS) : logs };
@@ -252,8 +284,26 @@ export const useAppStore = create<AppState>()((set, get) => {
     }
   };
 
+  /** Update the live progress record for one in-flight handout. */
+  const patchProgress = (id: string, patch: ProgressPatch) => {
+    set((state) => {
+      const current = state.active[id];
+      if (!current) return {};
+      return { active: { ...state.active, [id]: { ...current, ...patch } } };
+    });
+  };
+
+  const clearProgress = (id: string) => {
+    set((state) => {
+      if (!(id in state.active)) return {};
+      const next = { ...state.active };
+      delete next[id];
+      return { active: next };
+    });
+  };
+
   /** Run one handout end-to-end. Never throws; records failure instead. */
-  const runOne = async (id: string, signal: AbortSignal): Promise<void> => {
+  const runOne = async (id: string, pool: KeyPool, signal: AbortSignal): Promise<void> => {
     const reader = readers.get(id);
     const state = get();
     const handout = state.handouts[id];
@@ -273,16 +323,7 @@ export const useAppStore = create<AppState>()((set, get) => {
     }
 
     patchHandout(id, { status: 'processing', error: undefined });
-    set({
-      progress: {
-        handoutId: id,
-        courseCode: handout.courseCode,
-        handoutName: handout.fileName,
-        page: 0,
-        pageCount: 0,
-        stage: 'reading',
-      },
-    });
+    set((current) => ({ active: { ...current.active, [id]: freshProgress(handout) } }));
 
     try {
       const bytes = await reader.read();
@@ -291,22 +332,10 @@ export const useAppStore = create<AppState>()((set, get) => {
         courseCode: handout.courseCode,
         handoutName: handout.fileName,
         settings,
+        pool,
         signal,
-        onStage: (stage: ProcessingStage, page?: number, pageCount?: number) => {
-          set((current) =>
-            current.progress.handoutId === id
-              ? {
-                  progress: {
-                    ...current.progress,
-                    stage,
-                    page: page ?? current.progress.page,
-                    pageCount: pageCount ?? current.progress.pageCount,
-                  },
-                }
-              : {},
-          );
-        },
-        onLog: (level, message) => log(level, `${id} — ${message}`, id),
+        onProgress: (patch) => patchProgress(id, patch),
+        onLog: (level, message, keyLabel) => log(level, `${id} — ${message}`, id, keyLabel),
       });
 
       // Always keep the bytes so Download and ZIP work after a reload, then
@@ -351,8 +380,9 @@ export const useAppStore = create<AppState>()((set, get) => {
       set((current) => ({ totalHighlights: current.totalHighlights + outcome.highlightCount }));
       log(
         'success',
-        `${id} — ${outcome.highlightCount} highlight(s) added` +
-          `${outputMode === 'written' ? ` and saved as ${outputName}` : ''}.`,
+        `${id} — COMPLETE: ${outcome.highlightCount} highlight(s) across ${outcome.pageCount} page(s) ` +
+          `in ${((Date.now() - started) / 1000).toFixed(1)}s` +
+          `${outputMode === 'written' ? `, saved as ${outputName}` : ''}.`,
         id,
       );
     } catch (error) {
@@ -363,16 +393,16 @@ export const useAppStore = create<AppState>()((set, get) => {
         return;
       }
       patchHandout(id, { status: 'failed', error: message });
-      log('error', `${id} — ${message}`, id);
+      log('error', `${id} — FAILED: ${message}`, id);
     } finally {
-      set((current) => (current.progress.handoutId === id ? { progress: IDLE_PROGRESS } : {}));
+      clearProgress(id);
       await checkpoint();
     }
   };
 
   /** Drain `queue` with a bounded number of concurrent jobs. */
-  const drain = async (queue: string[], signal: AbortSignal) => {
-    const limit = Math.min(Math.max(get().settings.output.concurrency, 1), 3);
+  const drain = async (queue: string[], pool: KeyPool, signal: AbortSignal) => {
+    const limit = Math.min(Math.max(get().settings.output.concurrency, 1), MAX_CONCURRENCY);
     let cursor = 0;
     const worker = async () => {
       for (;;) {
@@ -381,10 +411,28 @@ export const useAppStore = create<AppState>()((set, get) => {
         cursor += 1;
         const id = queue[index];
         if (id === undefined) return;
-        await runOne(id, signal);
+        await runOne(id, pool, signal);
       }
     };
     await Promise.all(Array.from({ length: limit }, worker));
+  };
+
+  /**
+   * Build the key pool for a batch. Every handout shares it, so per-key rate
+   * limits and daily budgets hold across the whole run rather than per file.
+   */
+  const buildPool = (): KeyPool => {
+    const { ai } = get().settings;
+    const limits = poolLimits(ai);
+    const usage = loadKeyUsage();
+    const events = {
+      onStats: (stats: KeyStats[]) => set({ keyStats: stats }),
+      onUsage: saveKeyUsage,
+      onLog: (level: LogLevel, message: string, keyLabel: string) =>
+        log(level, message, undefined, keyLabel),
+    };
+    if (!providerMeta(ai.provider).browserDirect) return singleKeyPool(ai, usage);
+    return new KeyPool(ai.keys, limits, events, usage);
   };
 
   const run = async (ids: string[]) => {
@@ -404,14 +452,26 @@ export const useAppStore = create<AppState>()((set, get) => {
 
     abortController = new AbortController();
     const { signal } = abortController;
-    set({ running: true, stopping: false, confirm: null, banner: null });
-    log('info', `Processing ${ids.length} handout(s).`);
+    const pool = buildPool();
+    activePool = pool;
+    set({ running: true, stopping: false, confirm: null, banner: null, keyStats: pool.stats() });
+
+    const { ai, output } = get().settings;
+    const direct = providerMeta(ai.provider).browserDirect;
+    log(
+      'info',
+      `Processing ${ids.length} handout(s) — ${output.concurrency} document(s) at a time` +
+        (direct
+          ? `, ${pool.total} API key(s) in the pool, up to ${pool.parallelism} AI request(s) in parallel.`
+          : ' via the backend proxy.'),
+    );
 
     try {
-      await drain(ids, signal);
+      await drain(ids, pool, signal);
     } finally {
       abortController = null;
-      set({ running: false, stopping: false, progress: IDLE_PROGRESS });
+      activePool = null;
+      set({ running: false, stopping: false, active: {} });
       await disposeOcr();
       await checkpoint();
 
@@ -452,7 +512,7 @@ export const useAppStore = create<AppState>()((set, get) => {
   const stored = loadSettings();
 
   return {
-    settings: mergeSettings(stored.settings, stored.apiKey),
+    settings: mergeSettings(stored.settings, stored.keys),
     source: null,
     rootName: '',
     courses: [],
@@ -463,7 +523,8 @@ export const useAppStore = create<AppState>()((set, get) => {
     scanning: false,
     running: false,
     stopping: false,
-    progress: IDLE_PROGRESS,
+    active: {},
+    keyStats: [],
     logs: [],
     totalHighlights: 0,
     logsOpen: true,
@@ -475,7 +536,7 @@ export const useAppStore = create<AppState>()((set, get) => {
     resumeOffer: null,
     confirm: null,
     banner: null,
-    connection: { state: 'idle', message: '' },
+    connection: { state: 'idle', results: [] },
 
     async init() {
       document.documentElement.dataset.theme = get().settings.theme;
@@ -504,7 +565,32 @@ export const useAppStore = create<AppState>()((set, get) => {
           output: { ...state.settings.output, ...(patch.output ?? {}) },
         };
         saveSettings(next);
-        return { settings: next, connection: { state: 'idle', message: '' } };
+        if (activePool) activePool.setLimits(poolLimits(next.ai));
+        return { settings: next, connection: { state: 'idle', results: [] } };
+      });
+    },
+
+    addApiKey() {
+      const { settings } = get();
+      get().patchSettings({
+        ai: { ...settings.ai, keys: [...settings.ai.keys, newKeyEntry(settings.ai.keys.length)] },
+      });
+    },
+
+    updateApiKey(id, patch) {
+      const { settings } = get();
+      get().patchSettings({
+        ai: {
+          ...settings.ai,
+          keys: settings.ai.keys.map((entry) => (entry.id === id ? { ...entry, ...patch } : entry)),
+        },
+      });
+    },
+
+    removeApiKey(id) {
+      const { settings } = get();
+      get().patchSettings({
+        ai: { ...settings.ai, keys: settings.ai.keys.filter((entry) => entry.id !== id) },
       });
     },
 
@@ -722,14 +808,16 @@ export const useAppStore = create<AppState>()((set, get) => {
     },
 
     async runConnectionTest() {
-      set({ connection: { state: 'testing', message: '' } });
+      set({ connection: { state: 'testing', results: [] } });
       try {
-        const message = await testConnection(get().settings.ai);
-        set({ connection: { state: 'ok', message } });
-        log('success', `${APP_NAME}: ${message}`);
+        const results = await testConnection(get().settings.ai);
+        set({ connection: { state: 'done', results } });
+        for (const result of results) {
+          log(result.ok ? 'success' : 'error', `${result.message} (${result.ms} ms)`, undefined, result.label);
+        }
       } catch (error) {
         const message = error instanceof Error ? error.message : 'Connection test failed.';
-        set({ connection: { state: 'error', message } });
+        set({ connection: { state: 'done', results: [{ label: APP_NAME, ok: false, message, ms: 0 }] } });
         log('error', `Connection test failed: ${message}`);
       }
     },

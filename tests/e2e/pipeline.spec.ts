@@ -60,6 +60,6 @@ test('the app shell renders and guards the start button', async ({ page }) => {
   await expect(page.getByRole('button', { name: 'Process All Handouts' })).toHaveCount(0);
 
   await page.getByRole('button', { name: 'Settings' }).first().click();
-  await expect(page.getByLabel('API Key')).toHaveAttribute('type', 'password');
+  await expect(page.getByLabel('API key 1')).toHaveAttribute('type', 'password');
   await expect(page.getByRole('heading', { name: 'Settings' })).toBeVisible();
 });

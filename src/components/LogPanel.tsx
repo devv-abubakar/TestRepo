@@ -11,7 +11,7 @@ export function LogPanel() {
     <Card
       id="logs"
       title="Processing Log"
-      description={`${logs.length} entr${logs.length === 1 ? 'y' : 'ies'} — newest first.`}
+      description={`${logs.length} entr${logs.length === 1 ? 'y' : 'ies'} — newest first. Key-specific lines are tagged with the key's label.`}
       action={
         <div className="flex gap-2">
           <button type="button" className="btn-secondary px-3 py-1.5 text-xs" onClick={clear}>
@@ -45,6 +45,11 @@ export function LogPanel() {
                 <span className="shrink-0 text-muted">
                   {new Date(entry.at).toLocaleTimeString()}
                 </span>
+                {entry.keyLabel ? (
+                  <span className="shrink-0 rounded bg-brand-soft px-1.5 font-semibold text-brand">
+                    {entry.keyLabel}
+                  </span>
+                ) : null}
                 <span className="break-words text-ink">{entry.message}</span>
               </li>
             ))

@@ -13,11 +13,11 @@ import type {
   LogLevel,
   MatchedHighlight,
   ProcessOutcome,
-  ProcessingStage,
+  ProcessingProgress,
   Settings,
 } from '../../types';
 import { APP_NAME } from '../../constants';
-import { analyzeDocument } from '../ai';
+import { analyzeDocument, type KeyPool } from '../ai';
 import { ocrDocument } from '../ocr';
 import { validateOutput } from '../validation';
 import { addHighlightAnnotation, parseColor } from './annotations';
@@ -25,14 +25,21 @@ import { decorate } from './decorate';
 import { extractDocumentText, needsOcr } from './extract';
 import { openPdf } from './pdfjs';
 
+/** Fields of the live progress record this pipeline is allowed to update. */
+export type ProgressPatch = Partial<
+  Pick<ProcessingProgress, 'stage' | 'page' | 'pageCount' | 'chunksDone' | 'chunksTotal' | 'detail'>
+>;
+
 export interface ProcessInput {
   bytes: Uint8Array;
   courseCode: string;
   handoutName: string;
   settings: Settings;
+  /** Shared key pool, so rate limits are respected across all handouts. */
+  pool: KeyPool;
   signal?: AbortSignal;
-  onStage: (stage: ProcessingStage, page?: number, pageCount?: number) => void;
-  onLog: (level: LogLevel, message: string) => void;
+  onProgress: (patch: ProgressPatch) => void;
+  onLog: (level: LogLevel, message: string, keyLabel?: string) => void;
   /**
    * Seam for driving the pipeline without a live provider. Production code
    * leaves this unset and the configured AI provider is used.
@@ -62,34 +69,60 @@ export async function processHandout(input: ProcessInput): Promise<ProcessOutcom
   // below gets its own copy of the original bytes.
   const master = input.bytes;
 
-  input.onStage('extracting');
+  input.onProgress({ stage: 'extracting', page: 0, pageCount: 0, detail: 'Reading the file' });
   const source = await openPdf(master.slice());
   try {
     const pageCount = source.numPages;
+    input.onProgress({ pageCount });
     let text = await extractDocumentText(source, (page) =>
-      input.onStage('extracting', page, pageCount),
+      input.onProgress({ stage: 'extracting', page, detail: `Extracting text — page ${page} of ${pageCount}` }),
     );
     throwIfStopped(signal);
 
     if (needsOcr(text)) {
       input.onLog('warn', 'No usable text layer found — running OCR.');
-      input.onStage('ocr');
-      text = await ocrDocument(source, (page) => input.onStage('ocr', page, pageCount));
+      text = await ocrDocument(source, (page) =>
+        input.onProgress({ stage: 'ocr', page, detail: `OCR — page ${page} of ${pageCount}` }),
+      );
       input.onLog('info', `OCR recovered ${text.totalChars.toLocaleString()} characters.`);
     }
     throwIfStopped(signal);
 
-    input.onStage('analyzing');
     const meta = { courseCode: input.courseCode, handoutName: input.handoutName };
+    let chunksDone = 0;
+    input.onProgress({ stage: 'analyzing', chunksDone: 0, chunksTotal: 0, detail: 'Analyzing important content' });
+
     const aiHighlights = input.analyze
       ? await input.analyze(text, meta)
-      : await analyzeDocument(text, meta, settings.ai, {
+      : await analyzeDocument(text, meta, settings.ai, input.pool, {
           signal,
-          onRetry: (attempt, reason) => input.onLog('warn', `AI retry ${attempt}: ${reason}`),
+          onChunkStart: ({ index, total, pages, keyLabel }) => {
+            const span = pages.length > 1 ? `pages ${pages[0]}-${pages[pages.length - 1]}` : `page ${pages[0]}`;
+            input.onProgress({
+              stage: 'analyzing',
+              chunksTotal: total,
+              chunksDone,
+              page: pages[0] ?? 0,
+              detail: `Analyzing ${span} (part ${index}/${total}) via ${keyLabel}`,
+            });
+            input.onLog('info', `analyzing ${span} (part ${index}/${total})`, keyLabel);
+          },
+          onChunkDone: ({ index, total, pages, keyLabel, highlights, ms }) => {
+            chunksDone += 1;
+            const span = pages.length > 1 ? `pages ${pages[0]}-${pages[pages.length - 1]}` : `page ${pages[0]}`;
+            input.onProgress({ chunksDone, chunksTotal: total });
+            input.onLog(
+              'success',
+              `${span} done (part ${index}/${total}) — ${highlights} candidate(s) in ${(ms / 1000).toFixed(1)}s`,
+              keyLabel,
+            );
+          },
+          onRetry: ({ index, attempt, reason }) =>
+            input.onLog('warn', `part ${index}: reply was not valid JSON (attempt ${attempt}) — ${reason}`),
         });
     throwIfStopped(signal);
 
-    input.onStage('matching');
+    input.onProgress({ stage: 'matching', detail: 'Matching text to page coordinates' });
     const { matchHighlights } = await import('./match');
     const report = matchHighlights(text, aiHighlights, settings.highlight);
     for (const failure of report.failures) {
@@ -101,7 +134,7 @@ export async function processHandout(input: ProcessInput): Promise<ProcessOutcom
     }
     throwIfStopped(signal);
 
-    input.onStage('highlighting');
+    input.onProgress({ stage: 'highlighting', detail: 'Applying yellow highlights' });
     const out = await PDFDocument.load(master.slice(), { updateMetadata: false });
     const pages = out.getPages();
     const color = parseColor(settings.highlight.color);
@@ -122,7 +155,7 @@ export async function processHandout(input: ProcessInput): Promise<ProcessOutcom
       if (quads > 0) written += 1;
     }
 
-    input.onStage('annotating');
+    input.onProgress({ stage: 'annotating', detail: 'Adding student information and links' });
     const decoration = await decorate(out, source, text, settings.content);
     if (decoration.footerPlacement === 'new-page') {
       input.onLog('info', 'First page had no safe blank area — added a final information page.');
@@ -134,11 +167,11 @@ export async function processHandout(input: ProcessInput): Promise<ProcessOutcom
       );
     }
 
-    input.onStage('saving');
+    input.onProgress({ stage: 'saving', detail: 'Saving the highlighted PDF' });
     out.setProducer(APP_NAME);
     const bytes = await out.save({ useObjectStreams: false });
 
-    input.onStage('validating');
+    input.onProgress({ stage: 'validating', detail: 'Validating the output PDF' });
     const validation = await validateOutput({
       original: text,
       originalPageCount: pageCount,
@@ -160,7 +193,7 @@ export async function processHandout(input: ProcessInput): Promise<ProcessOutcom
       );
     }
 
-    input.onStage('done');
+    input.onProgress({ stage: 'done', detail: 'Finished' });
     return {
       highlightCount: written,
       lowConfidenceSkipped: report.failures.length,

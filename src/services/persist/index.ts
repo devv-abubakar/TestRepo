@@ -7,12 +7,14 @@
  * Output bytes are stored and read one handout at a time — never all at once.
  */
 import { openDB, type DBSchema, type IDBPDatabase } from 'idb';
-import type { OutputFile, SessionSnapshot, Settings } from '../../types';
+import type { ApiKeyEntry, OutputFile, SessionSnapshot, Settings } from '../../types';
+import type { DailyUsage } from '../ai';
 
 const DB_NAME = 'vu-handouts-highlighter';
 const DB_VERSION = 1;
 const SETTINGS_KEY = 'vu-highlighter.settings.v1';
-const API_KEY_KEY = 'vu-highlighter.apikey.v1';
+const API_KEYS_KEY = 'vu-highlighter.apikeys.v1';
+const USAGE_KEY = 'vu-highlighter.keyusage.v1';
 
 interface Schema extends DBSchema {
   meta: {
@@ -98,37 +100,92 @@ export async function deleteOutput(handoutId: string): Promise<void> {
 // ----------------------------------------------------------------- settings
 
 /**
- * Settings go to localStorage; the API key is kept out of that blob and only
- * stored separately when the user explicitly opts in.
+ * Settings go to localStorage with the key *values* stripped out. Only the
+ * labels, ids and enabled flags are kept, so a reload shows the same pool
+ * without ever persisting a secret unless the user opts in.
  */
 export function saveSettings(settings: Settings): void {
   try {
     const { ai, ...rest } = settings;
-    const { apiKey, ...safeAi } = ai;
-    localStorage.setItem(SETTINGS_KEY, JSON.stringify({ ...rest, ai: safeAi }));
-    if (ai.rememberKey && apiKey.length > 0) localStorage.setItem(API_KEY_KEY, apiKey);
-    else localStorage.removeItem(API_KEY_KEY);
+    const shells = ai.keys.map(({ id, label, enabled }) => ({ id, label, enabled, key: '' }));
+    localStorage.setItem(SETTINGS_KEY, JSON.stringify({ ...rest, ai: { ...ai, keys: shells } }));
+
+    if (ai.rememberKey) {
+      const withValues = ai.keys.filter((entry) => entry.key.trim().length > 0);
+      if (withValues.length > 0) localStorage.setItem(API_KEYS_KEY, JSON.stringify(withValues));
+      else localStorage.removeItem(API_KEYS_KEY);
+    } else {
+      localStorage.removeItem(API_KEYS_KEY);
+    }
   } catch {
     // Private-mode storage failures must never break processing.
   }
 }
 
-export function loadSettings(): { settings: Partial<Settings>; apiKey: string } {
+function readKeys(): ApiKeyEntry[] {
   try {
-    const raw = localStorage.getItem(SETTINGS_KEY);
-    const apiKey = localStorage.getItem(API_KEY_KEY) ?? '';
-    if (!raw) return { settings: {}, apiKey };
-    const parsed = JSON.parse(raw) as Partial<Settings>;
-    return { settings: parsed, apiKey };
+    const raw = localStorage.getItem(API_KEYS_KEY);
+    if (!raw) return [];
+    const parsed: unknown = JSON.parse(raw);
+    if (!Array.isArray(parsed)) return [];
+    return parsed
+      .filter((entry): entry is ApiKeyEntry => {
+        if (typeof entry !== 'object' || entry === null) return false;
+        const row = entry as Partial<ApiKeyEntry>;
+        return typeof row.id === 'string' && typeof row.key === 'string';
+      })
+      .map((entry) => ({
+        id: entry.id,
+        label: typeof entry.label === 'string' && entry.label.length > 0 ? entry.label : 'Key',
+        key: entry.key,
+        enabled: entry.enabled !== false,
+      }));
   } catch {
-    return { settings: {}, apiKey: '' };
+    return [];
   }
 }
 
-export function forgetApiKey(): void {
+export function loadSettings(): { settings: Partial<Settings>; keys: ApiKeyEntry[] } {
   try {
-    localStorage.removeItem(API_KEY_KEY);
+    const raw = localStorage.getItem(SETTINGS_KEY);
+    const keys = readKeys();
+    if (!raw) return { settings: {}, keys };
+    return { settings: JSON.parse(raw) as Partial<Settings>, keys };
+  } catch {
+    return { settings: {}, keys: [] };
+  }
+}
+
+export function forgetApiKeys(): void {
+  try {
+    localStorage.removeItem(API_KEYS_KEY);
   } catch {
     // Nothing to do.
+  }
+}
+
+/**
+ * Per-key daily usage. Without this a reload would forget that a key has
+ * already spent most of its free daily quota.
+ */
+export function saveKeyUsage(usage: DailyUsage): void {
+  try {
+    localStorage.setItem(USAGE_KEY, JSON.stringify(usage));
+  } catch {
+    // Not worth failing a batch over.
+  }
+}
+
+export function loadKeyUsage(): DailyUsage | undefined {
+  try {
+    const raw = localStorage.getItem(USAGE_KEY);
+    if (!raw) return undefined;
+    const parsed: unknown = JSON.parse(raw);
+    if (typeof parsed !== 'object' || parsed === null) return undefined;
+    const row = parsed as Partial<DailyUsage>;
+    if (typeof row.day !== 'string' || typeof row.used !== 'object' || row.used === null) return undefined;
+    return { day: row.day, used: row.used as Record<string, number> };
+  } catch {
+    return undefined;
   }
 }

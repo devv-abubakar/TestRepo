@@ -16,15 +16,56 @@ export interface ProviderMeta {
   docsUrl: string;
 }
 
+/** One API key in the pool, usually one per free-tier cloud project. */
+export interface ApiKeyEntry {
+  id: string;
+  /** Short name shown in the activity log, e.g. "Project A". */
+  label: string;
+  key: string;
+  enabled: boolean;
+}
+
 export interface AiConfig {
   provider: ProviderId;
-  apiKey: string;
+  /**
+   * The key pool. Several free-tier keys from different projects are rotated,
+   * so their quotas add up and requests run in parallel.
+   */
+  keys: ApiKeyEntry[];
   model: string;
   temperature: number;
   /** Absolute or relative URL of a serverless proxy (provider === 'proxy'). */
   proxyUrl: string;
-  /** Persist the key in localStorage. Off by default. */
+  /** Persist the keys in localStorage. Off by default. */
   rememberKey: boolean;
+  /** Requests per minute allowed per key. 0 disables the spacing. */
+  requestsPerMinutePerKey: number;
+  /** Requests per key per day before it is parked. 0 disables the budget. */
+  dailyBudgetPerKey: number;
+  /** Hard ceiling on concurrent AI requests across the whole pool. */
+  maxParallelRequests: number;
+}
+
+export type KeyStatus = 'idle' | 'active' | 'cooling' | 'exhausted' | 'disabled';
+
+/** Live state of one pooled key, surfaced in the UI and the log. */
+export interface KeyStats {
+  id: string;
+  label: string;
+  status: KeyStatus;
+  inFlight: number;
+  requests: number;
+  succeeded: number;
+  failed: number;
+  rateLimited: number;
+  /** Requests spent today, against `dailyBudgetPerKey`. */
+  usedToday: number;
+  /** Epoch ms until which this key is resting. */
+  cooldownUntil: number;
+  lastUsedAt: number;
+  lastError?: string;
+  /** What this key is working on right now. */
+  task?: string;
 }
 
 export type Importance = 'high' | 'medium' | 'low';
@@ -168,12 +209,19 @@ export interface Course {
 }
 
 export interface ProcessingProgress {
-  handoutId: string | null;
+  handoutId: string;
   courseCode: string;
   handoutName: string;
+  /** Page currently being read, extracted or recognised. */
   page: number;
   pageCount: number;
+  /** AI chunks finished and expected, so progress is real during analysis. */
+  chunksDone: number;
+  chunksTotal: number;
   stage: ProcessingStage;
+  /** Free-text detail, e.g. "pages 5-8 via Project B". */
+  detail: string;
+  startedAt: number;
 }
 
 export type ProcessingStage =
@@ -197,6 +245,8 @@ export interface LogEntry {
   level: LogLevel;
   message: string;
   handoutId?: string;
+  /** Label of the API key this line is about, when it is key-specific. */
+  keyLabel?: string;
 }
 
 // ------------------------------------------------------------------ settings

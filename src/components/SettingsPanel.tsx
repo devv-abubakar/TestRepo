@@ -1,5 +1,5 @@
 import { useId } from 'react';
-import { useAppStore } from '../store/useAppStore';
+import { MAX_CONCURRENCY, useAppStore } from '../store/useAppStore';
 import type { Importance } from '../types';
 import { ApiSettings } from './ApiSettings';
 import { Card, Field, Icon, Toggle } from './ui';
@@ -189,15 +189,15 @@ export function SettingsPanel() {
                 />
               </Field>
               <Field
-                label="Concurrency"
+                label="Documents at a time"
                 htmlFor={`${ids}-concurrency`}
-                hint="1–3 documents. Lower it if your API key has tight rate limits."
+                hint={`1–${MAX_CONCURRENCY} documents. Raise it when the key pool has spare capacity.`}
               >
                 <input
                   id={`${ids}-concurrency`}
                   type="number"
                   min={1}
-                  max={3}
+                  max={MAX_CONCURRENCY}
                   className="field"
                   disabled={running}
                   value={settings.output.concurrency}
