@@ -5,9 +5,12 @@
     "module": "ESNext",
     "moduleResolution": "bundler",
     "strict": true,
+    "noUnusedLocals": true,
+    "noUnusedParameters": true,
     "skipLibCheck": true,
     "noEmit": true,
+    "isolatedModules": true,
     "types": ["node"]
   },
-  "include": ["vite.config.ts", "scripts", "tests/e2e", "playwright.config.ts"]
+  "include": ["vite.config.ts", "playwright.config.ts", "tests/e2e", "api"]
 }

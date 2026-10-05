@@ -1,55 +1,138 @@
-import { AlertCircle, Info, X } from 'lucide-react';
-import { useProject } from '../store/useProject';
+import { useEffect, useState } from 'react';
+import { AI_NOTICE, PRIVACY_NOTICE } from '../constants';
+import { useAppStore } from '../store/useAppStore';
+import { isFileSystemAccessSupported } from '../services/filesystem';
+import { Icon, LEVEL_COLOR, LEVEL_ICON } from './ui';
 
-export function Notices() {
-  const notices = useProject((s) => s.notices);
-  const busy = useProject((s) => s.busy);
-  const dismiss = useProject((s) => s.dismiss);
+export function Banner() {
+  const banner = useAppStore((state) => state.banner);
+  const dismiss = useAppStore((state) => state.dismissBanner);
+  if (!banner) return null;
+  return (
+    <div className="card flex items-start gap-3 p-4" role="status">
+      <Icon name={LEVEL_ICON[banner.level]} className={`mt-0.5 h-5 w-5 ${LEVEL_COLOR[banner.level]}`} />
+      <p className="flex-1 text-sm text-ink">{banner.message}</p>
+      <button type="button" className="btn-ghost" onClick={dismiss} aria-label="Dismiss message">
+        <Icon name="close" />
+      </button>
+    </div>
+  );
+}
 
-  if (notices.length === 0 && !busy) return null;
+export function ResumeOffer() {
+  const offer = useAppStore((state) => state.resumeOffer);
+  const resume = useAppStore((state) => state.resumeSession);
+  const startOver = useAppStore((state) => state.startOver);
+  if (!offer) return null;
 
   return (
-    <div className="pointer-events-none fixed bottom-4 left-1/2 z-50 flex w-full max-w-md -translate-x-1/2 flex-col gap-2 px-4">
-      {busy && (
-        <div className="pointer-events-auto flex items-center gap-3 rounded-xl border border-white/[0.08] bg-ink-850/95 px-4 py-2.5 shadow-lift backdrop-blur">
-          <div className="h-1 flex-1 overflow-hidden rounded-full bg-ink-700">
-            <div
-              className="h-full rounded-full bg-brand-400 transition-all"
-              style={{ width: `${busy.total === 0 ? 0 : (busy.done / busy.total) * 100}%` }}
-            />
-          </div>
-          <span className="text-[11px] font-semibold tabular-nums text-ink-300">
-            {busy.label} {busy.done}/{busy.total}
-          </span>
-        </div>
-      )}
+    <div className="card border-brand/40 bg-brand-soft/60 p-5" role="region" aria-label="Previous session">
+      <h2 className="text-base font-semibold text-ink">Previous session detected</h2>
+      <p className="mt-1 text-sm text-ink/80">
+        Folder <strong>{offer.rootName}</strong> — {offer.completed} handouts already completed,{' '}
+        {offer.failed} failed, {offer.remaining} remaining. Completed handouts are never processed twice.
+      </p>
+      <div className="mt-4 flex flex-wrap gap-2">
+        <button type="button" className="btn-primary" onClick={() => void resume()}>
+          <Icon name="retry" />
+          Resume Processing
+        </button>
+        <button type="button" className="btn-secondary" onClick={() => void startOver()}>
+          Start Over
+        </button>
+      </div>
+    </div>
+  );
+}
 
-      {notices.map((notice) => (
-        <div
-          key={notice.id}
-          role="status"
-          className={`pointer-events-auto flex items-start gap-2.5 rounded-xl border px-4 py-2.5 shadow-lift backdrop-blur animate-fade-up ${
-            notice.kind === 'error'
-              ? 'border-red-500/25 bg-red-950/85'
-              : 'border-white/[0.08] bg-ink-850/95'
-          }`}
-        >
-          {notice.kind === 'error' ? (
-            <AlertCircle size={14} className="mt-0.5 shrink-0 text-red-400" />
-          ) : (
-            <Info size={14} className="mt-0.5 shrink-0 text-brand-300" />
-          )}
-          <p className="flex-1 text-[11.5px] leading-snug text-ink-200">{notice.message}</p>
-          <button
-            type="button"
-            onClick={() => dismiss(notice.id)}
-            className="shrink-0 rounded p-0.5 text-ink-500 transition hover:text-ink-100"
-            aria-label="Dismiss"
-          >
-            <X size={13} />
+export function EnvironmentNotices() {
+  const [narrow, setNarrow] = useState(false);
+  const supported = isFileSystemAccessSupported();
+
+  useEffect(() => {
+    const query = window.matchMedia('(max-width: 820px)');
+    const update = () => setNarrow(query.matches);
+    update();
+    query.addEventListener('change', update);
+    return () => query.removeEventListener('change', update);
+  }, []);
+
+  return (
+    <div className="grid gap-3 md:grid-cols-2">
+      {narrow ? (
+        <p className="card p-4 text-sm text-ink">
+          <Icon name="info" className="mr-2 inline h-4 w-4 text-brand" />
+          For processing large batches of handouts, please use a desktop/laptop browser.
+        </p>
+      ) : null}
+      {!supported ? (
+        <p className="card p-4 text-sm text-ink">
+          <Icon name="alert" className="mr-2 inline h-4 w-4 text-warn" />
+          This browser cannot open folders directly. Use the fallback folder picker — processing works the
+          same way, but outputs arrive as downloads instead of being written back into the course folders.
+          Chrome or Edge on desktop gives the full experience.
+        </p>
+      ) : null}
+      <p className="card p-4 text-xs text-muted">{PRIVACY_NOTICE}</p>
+      <p className="card p-4 text-xs text-muted">{AI_NOTICE}</p>
+    </div>
+  );
+}
+
+export function ConfirmDialog() {
+  const confirm = useAppStore((state) => state.confirm);
+  const cancel = useAppStore((state) => state.cancelConfirm);
+  const start = useAppStore((state) => state.startProcessing);
+
+  useEffect(() => {
+    if (!confirm) return;
+    const onKey = (event: KeyboardEvent) => {
+      if (event.key === 'Escape') cancel();
+    };
+    window.addEventListener('keydown', onKey);
+    return () => window.removeEventListener('keydown', onKey);
+  }, [confirm, cancel]);
+
+  if (!confirm) return null;
+
+  return (
+    <div className="fixed inset-0 z-40 grid place-items-center bg-black/45 p-4">
+      <div
+        className="card w-full max-w-md p-6"
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby="confirm-title"
+      >
+        <h2 id="confirm-title" className="text-lg font-semibold text-ink">
+          Ready to process
+        </h2>
+        <dl className="mt-4 space-y-1.5 text-sm">
+          {[
+            ['Courses', confirm.courses],
+            ['Handouts', confirm.handouts],
+            ['Existing outputs', confirm.existingOutputs],
+            ['Queued now', confirm.toProcess],
+          ].map(([label, value]) => (
+            <div key={String(label)} className="flex justify-between gap-4">
+              <dt className="text-muted">{label}</dt>
+              <dd className="font-semibold tabular-nums text-ink">{value}</dd>
+            </div>
+          ))}
+        </dl>
+        <p className="mt-3 text-xs text-muted">
+          Each handout needs one AI request per ~12,000 characters of text, so longer handouts use more
+          requests.
+        </p>
+        <div className="mt-5 flex justify-end gap-2">
+          <button type="button" className="btn-secondary" onClick={cancel}>
+            Cancel
+          </button>
+          <button type="button" className="btn-primary" onClick={() => void start()} autoFocus>
+            <Icon name="play" />
+            Start Processing
           </button>
         </div>
-      ))}
+      </div>
     </div>
   );
 }
