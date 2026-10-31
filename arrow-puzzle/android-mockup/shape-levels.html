@@ -1,0 +1,97 @@
+<!doctype html><html><head><meta charset="utf-8"><title>Shape Levels</title>
+<style>
+:root{--ink:#16181d;--muted:#7a8090;--bad:#e5484d;--live:#1f9d6b;--thing:#2f6fed}
+*{box-sizing:border-box}body{margin:0;background:#eef0f4;font-family:Roboto,"Segoe UI",system-ui,sans-serif;color:var(--ink);padding:40px 48px;width:1720px}
+h1{margin:0;font-size:34px;letter-spacing:-.02em}.sub{color:var(--muted);margin:6px 0 26px;font-size:16px}
+h3{margin:24px 0 12px;font-size:18px;display:flex;align-items:center;gap:10px}h3 i{width:10px;height:10px;border-radius:50%}
+.grid{display:grid;grid-template-columns:repeat(4,1fr);gap:22px}
+.card{background:#fff;border-radius:22px;box-shadow:0 4px 18px rgba(20,30,60,.07);padding:14px 16px 16px;display:flex;flex-direction:column;align-items:center}
+.hd{width:100%;display:flex;justify-content:space-between;align-items:center;font-size:13px;color:var(--muted);border-bottom:1px solid #f0f1f4;padding-bottom:10px}
+.hd b{color:var(--ink);font-size:15px}.hearts{color:var(--bad);letter-spacing:2px}
+.bd{height:440px;display:flex;align-items:center;justify-content:center;width:100%}
+.ft{width:100%;display:flex;justify-content:space-between;font-size:12px;color:var(--muted)}
+.tag{font-weight:700;border-radius:10px;padding:3px 9px;font-size:11px;color:#fff}
+</style></head><body>
+<h1>Shape levels — living &amp; non-living things</h1>
+<div class="sub">Every level is a picture made of tangled arrows. Clear all arrows to reveal it. Each board below is generated and checked to be solvable.</div>
+<h3><i style="background:var(--live)"></i>Living things</h3><div class="grid" id="live"></div>
+<h3><i style="background:var(--thing)"></i>Non-living things</h3><div class="grid" id="thing"></div>
+<script>
+// ---------- shapes drawn in a 100 x 120 box; "hole" parts are cut out (eyes, windows) ----------
+const SH={
+ Cat:{type:'live',W:38,draw(c,cut){c.ellipse(50,86,28,30,0,0,7);c.moveTo(72,40);c.arc(50,44,24,0,7);
+   c.moveTo(29,36);c.lineTo(27,6);c.lineTo(46,23);c.closePath();c.moveTo(71,36);c.lineTo(73,6);c.lineTo(54,23);c.closePath();
+   c.moveTo(70,108);c.quadraticCurveTo(100,110,94,72);c.lineTo(85,74);c.quadraticCurveTo(88,100,68,98);c.closePath();},
+   holes(c){c.ellipse(40,42,5.5,7.5,0,0,7);c.moveTo(65.5,42);c.ellipse(60,42,5.5,7.5,0,0,7);c.moveTo(54,52);c.lineTo(46,52);c.lineTo(50,57);c.closePath();}},
+ Fish:{type:'live',W:46,draw(c){c.ellipse(42,60,36,24,0,0,7);c.moveTo(70,60);c.lineTo(99,36);c.lineTo(92,60);c.lineTo(99,84);c.closePath();
+   c.moveTo(30,38);c.quadraticCurveTo(46,18,64,40);c.closePath();c.moveTo(38,82);c.quadraticCurveTo(48,98,58,82);c.closePath();},
+   holes(c){c.arc(20,54,6.5,0,7);c.moveTo(34,46);c.rect(33,42,4,36);c.moveTo(6,66);c.rect(6,66,10,2.5);}},
+ Butterfly:{type:'live',W:44,draw(c){for(const s of[-1,1]){c.moveTo(50,60);c.ellipse(50+s*24,40,24,22,s*-.5,0,7);c.moveTo(50,60);c.ellipse(50+s*20,82,17,18,s*.5,0,7);}
+   c.moveTo(47,30);c.rect(47,28,6,70);c.moveTo(48,30);c.lineTo(36,8);c.lineTo(39,7);c.lineTo(51,29);c.moveTo(52,30);c.lineTo(64,8);c.lineTo(61,7);c.lineTo(49,29);},
+   holes(c){c.arc(28,40,8,0,7);c.moveTo(80,40);c.arc(72,40,8,0,7);c.moveTo(36,84);c.arc(30,84,6,0,7);c.moveTo(76,84);c.arc(70,84,6,0,7);c.moveTo(38,48);c.rect(44,28,1.6,70);c.moveTo(55,28);c.rect(54.4,28,1.6,70);}},
+ Tree:{type:'live',W:38,draw(c){for(const [x,y,r] of[[50,30,22],[30,48,20],[70,48,20],[40,66,18],[62,66,18],[50,50,22]]){c.moveTo(x+r,y);c.arc(x,y,r,0,7)}
+   c.moveTo(43,78);c.rect(43,78,14,36);c.moveTo(30,114);c.rect(26,110,48,6);}},
+ House:{type:'thing',W:38,draw(c){c.moveTo(50,8);c.lineTo(95,50);c.lineTo(5,50);c.closePath();c.rect(14,48,72,62);c.rect(66,12,11,28);},
+   holes(c){c.rect(41,76,18,34);c.rect(20,58,16,14);c.rect(64,58,16,14);}},
+ Car:{type:'thing',W:46,draw(c){c.moveTo(4,62);c.lineTo(4,84);c.lineTo(96,84);c.lineTo(96,66);c.quadraticCurveTo(94,56,78,54);c.lineTo(66,36);c.lineTo(28,36);c.lineTo(16,54);c.quadraticCurveTo(4,55,4,62);
+   c.moveTo(36,88);c.arc(26,88,12,0,7);c.moveTo(86,88);c.arc(76,88,12,0,7);},
+   holes(c){c.moveTo(31,42);c.lineTo(46,42);c.lineTo(46,54);c.lineTo(23,54);c.closePath();c.moveTo(52,42);c.lineTo(63,42);c.lineTo(71,54);c.lineTo(52,54);c.closePath();c.moveTo(32,88);c.arc(26,88,6,0,7);c.moveTo(82,88);c.arc(76,88,6,0,7);}},
+ Rocket:{type:'thing',W:30,draw(c){c.moveTo(50,2);c.quadraticCurveTo(76,26,72,64);c.lineTo(72,92);c.lineTo(28,92);c.lineTo(28,64);c.quadraticCurveTo(24,26,50,2);
+   c.moveTo(28,64);c.lineTo(10,96);c.lineTo(28,90);c.moveTo(72,64);c.lineTo(90,96);c.lineTo(72,90);c.moveTo(38,92);c.lineTo(50,116);c.lineTo(62,92);},
+   holes(c){c.arc(50,44,11,0,7);c.moveTo(28,76);c.rect(28,74,44,4);}},
+ Cup:{type:'thing',W:42,draw(c){c.moveTo(10,30);c.lineTo(76,30);c.lineTo(70,92);c.quadraticCurveTo(68,100,58,100);c.lineTo(28,100);c.quadraticCurveTo(18,100,16,92);c.closePath();
+   c.moveTo(96,56);c.ellipse(78,56,18,18,0,0,7);c.moveTo(2,106);c.rect(2,104,84,8);for(const x of[30,46,62]){c.moveTo(x,24);c.rect(x-2,4,4,22)}},
+   holes(c){c.ellipse(80,56,9,10,0,0,7);c.moveTo(12,44);c.rect(14,44,60,4);}},
+};
+function maskOf(sh,W){
+ // rasterise the drawing, crop to its bounding box, then sample one point per grid cell
+ const U=8,cv=document.createElement('canvas');cv.width=100*U;cv.height=120*U;const c=cv.getContext('2d');
+ c.scale(U,U);c.fillStyle='#000';c.beginPath();sh.draw(c);c.fill('nonzero');
+ if(sh.holes){c.globalCompositeOperation='destination-out';c.beginPath();sh.holes(c);c.fill()}
+ const d=c.getImageData(0,0,cv.width,cv.height).data,A=(x,y)=>d[(y*cv.width+x)*4+3];
+ let x0=1e9,y0=1e9,x1=0,y1=0;for(let y=0;y<cv.height;y+=2)for(let x=0;x<cv.width;x+=2)if(A(x,y)>110){x0=Math.min(x0,x);y0=Math.min(y0,y);x1=Math.max(x1,x);y1=Math.max(y1,y)}
+ const cs=(x1-x0)/W,H=Math.round((y1-y0)/cs);
+ return{W,H,mask:(x,y)=>A(Math.round(x0+(x+.5)*cs),Math.round(y0+(y+.5)*cs))>110};
+}
+// ---------- solvable snake generator (exit ray of each new arrow avoids all earlier arrows) ----------
+const D=[[0,-1],[1,0],[0,1],[-1,0]];
+function rng(s){return()=>{s|=0;s=s+0x6D2B79F5|0;let t=Math.imul(s^s>>>15,1|s);t=t+Math.imul(t^t>>>7,61|t)^t;return((t^t>>>14)>>>0)/4294967296}}
+function gen(W,H,seed,mask){
+ const r=rng(seed),occ=Array.from({length:H},()=>Array(W).fill(-1)),snakes=[];
+ const inside=(x,y)=>x>=0&&y>=0&&x<W&&y<H, free=(x,y)=>inside(x,y)&&occ[y][x]===-1&&mask(x,y);
+ const rayOk=p=>{const a=p[p.length-2],h=p[p.length-1],dx=h[0]-a[0],dy=h[1]-a[1],own=new Set(p.map(q=>q+''));let x=h[0]+dx,y=h[1]+dy;
+  while(inside(x,y)){if(occ[y][x]>=0||own.has(x+','+y))return false;x+=dx;y+=dy}return true};
+ const cells=[];for(let y=0;y<H;y++)for(let x=0;x<W;x++)if(mask(x,y))cells.push([x,y]);
+ const key=new Map(cells.map(([x,y])=>[x+','+y,Math.max(Math.abs(x-(W-1)/2)/W,Math.abs(y-(H-1)/2)/H)+r()*.18]));
+ cells.sort((a,b)=>key.get(a+'')-key.get(b+''));
+ for(let pass=0;pass<4;pass++)for(const [sx,sy] of cells){ if(!free(sx,sy))continue;let best=null;
+  for(let t=0;t<16;t++){const p=[[sx,sy]],seen=new Set([sx+','+sy]);let d=Math.floor(r()*4),len=t<10?4+Math.floor(r()*12):2+Math.floor(r()*3);
+   while(p.length<len){const [x,y]=p[p.length-1];const o=[0,1,2,3].filter(k=>free(x+D[k][0],y+D[k][1])&&!seen.has((x+D[k][0])+','+(y+D[k][1])));
+    if(!o.length)break;const k=o.includes(d)&&r()<.55?d:o[Math.floor(r()*o.length)];d=k;const q=[x+D[k][0],y+D[k][1]];p.push(q);seen.add(q+'')}
+   for(const cand of[p,[...p].reverse()]){const c=[...cand];while(c.length>=2&&!rayOk(c))c.pop();if(c.length>=2&&(!best||c.length>best.length))best=c}}
+  if(best){const id=snakes.length;snakes.push(best);for(const[x,y]of best)occ[y][x]=id}}
+ const dirOf=p=>{const a=p[p.length-2],b=p[p.length-1];return D.findIndex(d=>d[0]==b[0]-a[0]&&d[1]==b[1]-a[1])};
+ // verify solvable by peeling
+ let alive=new Set(snakes.map((_,i)=>i)),rounds=0;
+ const isFree=i=>{const p=snakes[i],[dx,dy]=D[dirOf(p)];let [x,y]=p[p.length-1];x+=dx;y+=dy;while(inside(x,y)){const o=occ[y][x];if(o>=0&&o!==i&&alive.has(o))return false;x+=dx;y+=dy}return true};
+ while(alive.size){const f=[...alive].filter(isFree);if(!f.length)throw'unsolvable';rounds++;f.forEach(i=>alive.delete(i))}
+ let total=0;for(let y=0;y<H;y++)for(let x=0;x<W;x++)if(mask(x,y))total++;
+ return{W,H,snakes,dirOf,rounds,fill:snakes.reduce((a,p)=>a+p.length,0)/total};
+}
+function svg(L,maxW,maxH){
+ const c=Math.min(maxW/L.W,maxH/L.H),w=c*L.W,h=c*L.H,sw=Math.max(1.3,c*.17),P=([x,y])=>[(x+.5)*c,(y+.5)*c];
+ let s=`<svg width="${w}" height="${h}" style="overflow:visible">`;
+ for(const p of L.snakes){const [dx,dy]=D[L.dirOf(p)],pts=p.map(P),l=pts[pts.length-1],tip=[l[0]+dx*c*.42,l[1]+dy*c*.42];
+  s+=`<polyline points="${[...pts,[tip[0]-dx*c*.15,tip[1]-dy*c*.15]].map(q=>q.join(',')).join(' ')}" fill="none" stroke="#16181d" stroke-width="${sw}" stroke-linejoin="round" stroke-linecap="round"/>`;
+  const a=c*.36,px=-dy,py=dx;s+=`<polygon points="${tip[0]},${tip[1]} ${tip[0]-dx*a+px*a*.6},${tip[1]-dy*a+py*a*.6} ${tip[0]-dx*a-px*a*.6},${tip[1]-dy*a-py*a*.6}" fill="#16181d"/>`}
+ return s+'</svg>';
+}
+let n=41;
+for(const [name,sh] of Object.entries(SH)){
+ const M=maskOf(sh,sh.W);const L=gen(M.W,M.H,n*7+3,M.mask);
+ const html=`<div class="card"><div class="hd"><span><b>Level ${n}</b> · ${name}</span><span class="hearts">♥♥♥</span></div>
+ <div class="bd">${svg(L,350,410)}</div><div class="ft"><span>${L.snakes.length} arrows · ${L.rounds} rounds</span><span class="tag" style="background:var(--${sh.type})">${sh.type==='live'?'LIVING':'NON-LIVING'}</span></div></div>`;
+ document.getElementById(sh.type==='live'?'live':'thing').insertAdjacentHTML('beforeend',html);n+=6;
+ console.log(name,L.snakes.length,(L.fill*100).toFixed(0)+'%');
+}
+</script></body></html>
