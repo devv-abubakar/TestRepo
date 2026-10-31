@@ -1,0 +1,119 @@
+<!doctype html><html><head><meta charset="utf-8"><title>Hardest Level Design</title>
+<style>
+:root{--ink:#16181d;--muted:#7a8090;--accent:#2f6fed;--bad:#e5484d;--gold:#f5b62b}
+*{box-sizing:border-box}body{margin:0;background:linear-gradient(160deg,#1a1d29,#272235);font-family:Roboto,"Segoe UI",system-ui,sans-serif;color:#fff;padding:40px 48px 40px;width:1720px}
+h1{margin:0;font-size:36px;letter-spacing:-.02em}h1 em{font-style:normal;color:#ff8a8e}.sub{color:#a9aec0;margin:6px 0 30px;font-size:16px}
+.row{display:flex;gap:34px;align-items:flex-start}
+.cap{text-align:center;margin-top:14px;font-weight:600;font-size:15px}.cap span{display:block;font-weight:400;color:#a9aec0;font-size:13px;margin-top:2px}
+.phone{width:380px;height:800px;border-radius:44px;background:#05060a;padding:11px;box-shadow:0 30px 60px -20px rgba(0,0,0,.6);border:1px solid #3a3d4a}
+.screen{width:100%;height:100%;border-radius:34px;background:#fff;color:var(--ink);overflow:hidden;position:relative;display:flex;flex-direction:column}
+.status{height:34px;display:flex;justify-content:space-between;align-items:center;padding:0 22px;font-size:13px;font-weight:600}
+.cam{width:12px;height:12px;border-radius:50%;background:#05060a;position:absolute;left:50%;top:10px;transform:translateX(-50%)}
+.gest{height:22px;display:flex;justify-content:center;align-items:center}.gest i{width:110px;height:4px;border-radius:4px;background:#1118}
+.top{display:flex;justify-content:space-between;align-items:center;padding:6px 18px 4px}
+.pill{background:#f3f4f7;border-radius:20px;padding:6px 12px;font-size:13px;font-weight:700;display:flex;gap:6px;align-items:center}
+.pill.red{background:#fde8e9;color:var(--bad)}
+.lvl{text-align:center}.lvl strong{display:block;font-size:19px}.lvl small{color:var(--bad);font-weight:700;font-size:11px;letter-spacing:.08em}
+.hearts{text-align:center;color:var(--bad);font-size:18px;letter-spacing:2px;margin-top:2px}
+.board{flex:1;display:flex;align-items:center;justify-content:center;position:relative}
+.tools{display:flex;justify-content:space-around;padding:10px 20px 14px}
+.tool{width:58px;height:58px;border-radius:18px;background:#f3f4f7;display:flex;flex-direction:column;align-items:center;justify-content:center;font-size:20px}
+.tool small{font-size:10px;color:var(--muted);margin-top:2px;font-weight:600}.tool.off{opacity:.35}
+.zoomwin{width:100%;height:100%;overflow:hidden;position:relative}
+.zoomwin svg{position:absolute}
+.chip{position:absolute;left:50%;transform:translateX(-50%);top:12px;background:var(--ink);color:#fff;font-size:12px;font-weight:600;padding:7px 12px;border-radius:20px;white-space:nowrap;z-index:2}
+.panel{flex:1;background:#fff;color:var(--ink);border-radius:28px;padding:24px;min-height:800px}
+.panel h2{margin:0;font-size:20px}.panel .s{color:var(--muted);font-size:13px;margin:2px 0 14px}
+.pb{display:flex;gap:20px}
+.stats{display:grid;grid-template-columns:1fr 1fr;gap:10px;align-content:start;width:270px}
+.stats div{background:#f5f6f9;border-radius:16px;padding:12px 14px;font-size:12px;color:var(--muted)}
+.stats strong{display:block;font-size:22px;color:var(--ink)}.stats .hot strong{color:var(--bad)}
+.legend{display:flex;align-items:center;gap:8px;font-size:12px;color:var(--muted);margin-top:10px}
+.legend i{flex:1;height:10px;border-radius:6px}
+.why{margin-top:16px;font-size:13px;line-height:1.5;color:#3b3f4a;padding-left:18px}.why li{margin-bottom:6px}.why b{color:var(--ink)}
+</style></head><body>
+<h1>Level 300 · <em>“The Knot”</em> — hardest level</h1>
+<div class="sub" id="sub"></div>
+<div class="row" id="row"></div>
+<script>
+const D=[[0,-1],[1,0],[0,1],[-1,0]];
+function rng(s){return()=>{s|=0;s=s+0x6D2B79F5|0;let t=Math.imul(s^s>>>15,1|s);t=t+Math.imul(t^t>>>7,61|t)^t;return((t^t>>>14)>>>0)/4294967296}}
+// Hard generator: each new snake keeps its own exit ray clear of earlier snakes (=> solvable in reverse
+// placement order) but is chosen to sit on top of as many still-free earlier exit rays as possible.
+function genHard(W,H,seed){
+ const r=rng(seed),occ=Array.from({length:H},()=>Array(W).fill(-1)),snakes=[],rayOver=new Map(),blocked=[];
+ const inside=(x,y)=>x>=0&&y>=0&&x<W&&y<H, free=(x,y)=>inside(x,y)&&occ[y][x]===-1;
+ const ray=p=>{const a=p[p.length-2],h=p[p.length-1],dx=h[0]-a[0],dy=h[1]-a[1],out=[];let x=h[0]+dx,y=h[1]+dy;while(inside(x,y)){out.push([x,y]);x+=dx;y+=dy}return out};
+ const rayOk=p=>{const own=new Set(p.map(q=>q+''));return ray(p).every(([x,y])=>occ[y][x]<0&&!own.has(x+','+y))};
+ const cells=[];for(let y=0;y<H;y++)for(let x=0;x<W;x++)cells.push([x,y]);
+ const key=new Map(cells.map(([x,y])=>[x+','+y,Math.max(Math.abs(x-(W-1)/2)/W,Math.abs(y-(H-1)/2)/H)+r()*.12]));
+ cells.sort((a,b)=>key.get(a+'')-key.get(b+''));
+ for(let pass=0;pass<3;pass++)for(const [sx,sy] of cells){ if(!free(sx,sy))continue;
+  let best=null,bs=-1;
+  for(let t=0;t<26;t++){
+   const p=[[sx,sy]],seen=new Set([sx+','+sy]);let d=Math.floor(r()*4),len=t<18?4+Math.floor(r()*16):2+Math.floor(r()*4);
+   while(p.length<len){const [x,y]=p[p.length-1];const o=[0,1,2,3].filter(k=>free(x+D[k][0],y+D[k][1])&&!seen.has((x+D[k][0])+','+(y+D[k][1])));
+    if(!o.length)break;const k=o.includes(d)&&r()<.42?d:o[Math.floor(r()*o.length)];d=k;const q=[x+D[k][0],y+D[k][1]];p.push(q);seen.add(q+'')}
+   for(const cand of[p,[...p].reverse()]){const c=[...cand];while(c.length>=2&&!rayOk(c))c.pop();if(c.length<2)continue;
+    const hit=new Set();for(const q of c)for(const id of rayOver.get(q+'')||[])if(!blocked[id])hit.add(id);
+    const rl=ray(c).length;const sc=hit.size*14+c.length+Math.min(rl,12)*1.5-(rl<2?40:0);if(sc>bs){bs=sc;best={c,hit}}}
+  }
+  if(best){const id=snakes.length;snakes.push(best.c);blocked.push(false);for(const[x,y]of best.c)occ[y][x]=id;
+   for(const h of best.hit)blocked[h]=true;
+   for(const q of best.c)for(const h of rayOver.get(q+'')||[])blocked[h]=true;
+   for(const q of ray(best.c)){const k=q+'';if(!rayOver.has(k))rayOver.set(k,[]);rayOver.get(k).push(id)}}
+ }
+ const dirOf=p=>{const a=p[p.length-2],b=p[p.length-1];return D.findIndex(d=>d[0]==b[0]-a[0]&&d[1]==b[1]-a[1])};
+ const isFree=(i,alive)=>ray(snakes[i]).every(([x,y])=>{const o=occ[y][x];return o<0||o===i||!alive.has(o)});
+ // peel in rounds: layer = round in which an arrow first becomes free
+ const layer=Array(snakes.length).fill(0);let alive=new Set(snakes.map((_,i)=>i)),rounds=0,freeCounts=[];
+ while(alive.size){rounds++;const f=[...alive].filter(i=>isFree(i,alive));if(!f.length)throw'unsolvable';freeCounts.push(f.length);for(const i of f){layer[i]=rounds;alive.delete(i)}}
+ // single-step branching: how many moves are available on average while solving one arrow at a time
+ alive=new Set(snakes.map((_,i)=>i));let sum=0,steps=0,minB=1e9;
+ while(alive.size){const f=[...alive].filter(i=>isFree(i,alive));sum+=f.length;steps++;minB=Math.min(minB,f.length);alive.delete(f.sort((a,b)=>layer[a]-layer[b])[0])}
+ return{W,H,snakes,occ,dirOf,layer,rounds,freeCounts,avgBranch:sum/steps,isFree,startFree:snakes.map((_,i)=>i).filter(i=>isFree(i,new Set(snakes.map((_,j)=>j))))};
+}
+let L=null;
+for(const seed of[325]){const g=genHard(30,40,seed);if(!L||g.rounds>L.rounds||(g.rounds==L.rounds&&g.startFree.length<L.startFree.length))L=g}
+const cellsUsed=L.snakes.reduce((a,p)=>a+p.length,0),longest=Math.max(...L.snakes.map(p=>p.length));
+function svg(L,c,opt={}){
+ const w=c*L.W,h=c*L.H,sw=opt.sw||Math.max(1.3,c*.15),P=([x,y])=>[(x+.5)*c,(y+.5)*c];
+ let s=`<svg width="${w}" height="${h}" viewBox="0 0 ${w} ${h}" style="${opt.style||''}">`;
+ L.snakes.forEach((p,i)=>{
+  let col='var(--ink)';if(opt.heat){const t=(L.layer[i]-1)/Math.max(1,L.rounds-1);col=`hsl(${200+t*150},${70+t*10}%,${58-t*18}%)`}
+  if(opt.hl?.includes(i))col='var(--accent)';
+  const [dx,dy]=D[L.dirOf(p)],pts=p.map(P),last=pts[pts.length-1],tip=[last[0]+dx*c*.42,last[1]+dy*c*.42];
+  const wd=opt.hl?.includes(i)?sw*1.5:sw;
+  s+=`<polyline points="${[...pts,[tip[0]-dx*c*.15,tip[1]-dy*c*.15]].map(q=>q.join(',')).join(' ')}" fill="none" stroke="${col}" stroke-width="${wd}" stroke-linejoin="round" stroke-linecap="round"/>`;
+  const a=c*.34,px=-dy,py=dx;
+  s+=`<polygon points="${tip[0]},${tip[1]} ${tip[0]-dx*a+px*a*.6},${tip[1]-dy*a+py*a*.6} ${tip[0]-dx*a-px*a*.6},${tip[1]-dy*a-py*a*.6}" fill="${col}"/>`;
+ });
+ return s+'</svg>';
+}
+const status=`<div class="cam"></div><div class="status"><span>9:41</span><span>▴ ◢ ▮</span></div>`,gest=`<div class="gest"><i></i></div>`;
+const topBar=`<div class="top"><div class="pill red">⏱ 08:00</div><div class="lvl"><strong>Level 300</strong><small>EXPERT · THE KNOT</small></div><div class="pill">🪙 9,840</div></div><div class="hearts">♥</div>`;
+const tools=`<div class="tools"><div class="tool off">💡<small>NO HINT</small></div><div class="tool off">↶<small>NO UNDO</small></div><div class="tool">⤢<small>ZOOM</small></div><div class="tool">⟲<small>RESTART</small></div></div>`;
+// zoom target: area around a free arrow head
+const fi=L.startFree.sort((a,b)=>L.snakes[b].length-L.snakes[a].length)[0],zh=L.snakes[fi][L.snakes[fi].length-1];
+const zc=30,zw=358,zhgt=560;let ox=Math.min(0,Math.max(zw-zc*L.W,zw/2-(zh[0]+.5)*zc)),oy=Math.min(0,Math.max(zhgt-zc*L.H,zhgt/2-(zh[1]+.5)*zc));
+document.getElementById('sub').textContent=`30×40 board · ${L.snakes.length} arrows covering ${cellsUsed} of 1200 cells · only ${L.startFree.length} arrows can move at the start · 1 heart, no hints, no undo`;
+document.getElementById('row').innerHTML=`
+<div><div class="phone"><div class="screen">${status}${topBar}<div class="board">${svg(L,11.4)}</div>${tools}${gest}</div></div>
+<div class="cap">Full board<span>${L.snakes.length} tangled arrows, 1 heart</span></div></div>
+<div><div class="phone"><div class="screen">${status}${topBar}<div class="board"><div class="zoomwin"><div class="chip">🔍 Pinch-zoomed ×2.6 · find the ${L.startFree.length} free arrows</div>${svg(L,zc,{hl:[fi],sw:2.6,style:`left:${ox}px;top:${oy}px`})}</div></div>${tools}${gest}</div></div>
+<div class="cap">Zoomed in<span>Blue = one of the few arrows that can escape</span></div></div>
+<div class="panel"><h2>Designer view: solve-order heatmap</h2><div class="s">Colour = the round in which an arrow first becomes free. Blue escapes first, deep red escapes last.</div>
+<div class="pb"><div>${svg(L,10.6,{heat:true})}<div class="legend">Round 1<i style="background:linear-gradient(90deg,hsl(200,70%,58%),hsl(275,75%,49%),hsl(350,80%,40%))"></i>Round ${L.rounds}</div></div>
+<div><div class="stats">
+ <div class="hot"><strong>${L.startFree.length}</strong>free moves at start</div><div><strong>${L.snakes.length}</strong>arrows</div>
+ <div class="hot"><strong>${L.rounds}</strong>dependency rounds</div><div><strong>${L.avgBranch.toFixed(1)}</strong>avg moves available</div>
+ <div><strong>${longest}</strong>cells in longest arrow</div><div><strong>${Math.round(cellsUsed/12)}%</strong>board filled</div>
+ <div class="hot"><strong>1</strong>heart</div><div><strong>8:00</strong>time limit</div></div>
+<ul class="why">
+ <li><b>Built backwards:</b> every arrow is placed so that it blocks as many still-free arrows as possible, so only a handful can move at any moment.</li>
+ <li><b>Still always solvable:</b> each new arrow keeps its own exit clear of earlier arrows, so removing them in reverse order always works.</li>
+ <li><b>Long winding arrows</b> (up to ${longest} cells) whose heads are hard to trace back to their tails.</li>
+ <li><b>${L.rounds} rounds deep:</b> the last arrows only open up after ${L.rounds-1} earlier waves are cleared.</li>
+ <li><b>No safety net:</b> one wrong tap ends the run. No hints, no undo, 8-minute timer.</li>
+</ul></div></div></div>`;
+</script></body></html>
