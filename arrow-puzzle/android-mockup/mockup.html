@@ -1,0 +1,138 @@
+<!doctype html><html><head><meta charset="utf-8"><title>Arrow Untangle Android Mockup</title>
+<style>
+:root{--ink:#16181d;--muted:#7a8090;--line:#eceef2;--accent:#2f6fed;--bad:#e5484d;--gold:#f5b62b;--bg:#eef0f4}
+*{box-sizing:border-box}body{margin:0;background:linear-gradient(160deg,#e9edf6,#f6f1ea);font-family:Roboto,"Segoe UI",system-ui,sans-serif;color:var(--ink);padding:40px 48px 36px;width:1720px}
+h1{margin:0;font-size:34px;letter-spacing:-.02em}.sub{color:var(--muted);margin:6px 0 30px;font-size:16px}
+.row{display:flex;gap:34px;align-items:flex-start}
+.cap{text-align:center;margin-top:14px;font-weight:600;font-size:15px}.cap span{display:block;font-weight:400;color:var(--muted);font-size:13px;margin-top:2px}
+.phone{width:380px;height:800px;border-radius:44px;background:#0d0e12;padding:11px;box-shadow:0 30px 60px -20px rgba(20,30,60,.35)}
+.screen{width:100%;height:100%;border-radius:34px;background:#fff;overflow:hidden;position:relative;display:flex;flex-direction:column}
+.status{height:34px;display:flex;justify-content:space-between;align-items:center;padding:0 22px;font-size:13px;font-weight:600}
+.cam{width:12px;height:12px;border-radius:50%;background:#0d0e12;position:absolute;left:50%;top:10px;transform:translateX(-50%)}
+.gest{height:22px;display:flex;justify-content:center;align-items:center}.gest i{width:110px;height:4px;border-radius:4px;background:#1118}
+.top{display:flex;justify-content:space-between;align-items:center;padding:6px 18px 10px}
+.pill{background:#f3f4f7;border-radius:20px;padding:6px 12px;font-size:13px;font-weight:600;display:flex;gap:6px;align-items:center}
+.hearts{color:var(--bad);font-size:18px;letter-spacing:2px}.hearts b{color:#d6d9e0}
+.lvl{text-align:center;font-size:13px;color:var(--muted);margin-top:-4px}
+.lvl strong{display:block;color:var(--ink);font-size:20px}
+.prog{height:5px;background:#f0f1f4;border-radius:4px;margin:8px 22px 0;overflow:hidden}.prog i{display:block;height:100%;background:var(--accent);border-radius:4px}
+.board{flex:1;display:flex;align-items:center;justify-content:center}
+.tools{display:flex;justify-content:space-around;padding:10px 20px 14px}
+.tool{width:58px;height:58px;border-radius:18px;background:#f3f4f7;display:flex;flex-direction:column;align-items:center;justify-content:center;font-size:20px;position:relative}
+.tool small{font-size:10px;color:var(--muted);margin-top:2px;font-weight:600}
+.badge{position:absolute;top:-5px;right:-5px;background:var(--accent);color:#fff;font-size:10px;border-radius:10px;padding:2px 6px;font-weight:700}
+.toast{position:absolute;left:50%;top:150px;transform:translateX(-50%);background:var(--bad);color:#fff;font-size:13px;font-weight:600;padding:8px 14px;border-radius:20px;box-shadow:0 6px 16px rgba(229,72,77,.35);white-space:nowrap}
+/* home */
+.home{padding:10px 22px;display:flex;flex-direction:column;flex:1}
+.logo{margin:18px 0 4px;font-size:30px;font-weight:800;letter-spacing:-.03em}.logo em{color:var(--accent);font-style:normal}
+.card{border-radius:22px;padding:16px;margin-top:14px}
+.daily{background:linear-gradient(135deg,#2f6fed,#6b4fe0);color:#fff}
+.daily h3{margin:0 0 4px;font-size:17px}.daily p{margin:0;opacity:.85;font-size:13px}
+.map{flex:1;position:relative;margin-top:8px}
+.node{position:absolute;width:52px;height:52px;border-radius:50%;display:flex;align-items:center;justify-content:center;font-weight:700;font-size:16px;background:#f3f4f7;color:var(--muted)}
+.node.done{background:#e6eefe;color:var(--accent)}.node.cur{background:var(--accent);color:#fff;box-shadow:0 0 0 7px #2f6fed33;width:62px;height:62px;font-size:20px}
+.stars{position:absolute;top:-12px;left:50%;transform:translateX(-50%);font-size:10px;color:var(--gold);letter-spacing:-1px}
+.play{background:var(--ink);color:#fff;text-align:center;font-weight:700;font-size:18px;border-radius:20px;padding:17px;margin:8px 0 12px}
+.nav{display:flex;justify-content:space-around;border-top:1px solid var(--line);padding:10px 0 4px;font-size:11px;color:var(--muted);text-align:center}.nav div{font-size:20px}.nav .on{color:var(--accent)}
+/* win */
+.win{position:absolute;inset:0;background:rgba(15,18,28,.55);display:flex;align-items:flex-end}
+.sheet{background:#fff;border-radius:30px 30px 0 0;width:100%;padding:26px 24px 30px;text-align:center}
+.bigstars{font-size:46px;color:var(--gold);letter-spacing:4px}.bigstars b{color:#e4e6ec}
+.sheet h2{margin:6px 0 2px;font-size:26px}.sheet p{margin:0;color:var(--muted);font-size:14px}
+.stats{display:flex;gap:10px;margin:20px 0}.stats div{flex:1;background:#f5f6f9;border-radius:16px;padding:12px 4px;font-size:12px;color:var(--muted)}.stats strong{display:block;font-size:20px;color:var(--ink)}
+.btn{border-radius:18px;padding:15px;font-weight:700;font-size:16px;margin-top:10px}.btn.p{background:var(--accent);color:#fff}.btn.s{background:#f3f4f7}
+.tech{margin-top:34px;display:grid;grid-template-columns:repeat(6,1fr);gap:14px}
+.tech div{background:#fff;border-radius:18px;padding:14px 16px;font-size:13px;color:var(--muted);box-shadow:0 2px 8px rgba(20,30,60,.06)}
+.tech strong{display:block;color:var(--ink);font-size:14px;margin-bottom:3px}
+</style></head><body>
+<h1>Arrow Untangle — Android (Kotlin + Jetpack Compose)</h1>
+<div class="sub">Concept mockup · arrows are long snake paths · tap one and it slides out along its head direction — only if the way ahead is clear</div>
+<div class="row" id="row"></div>
+<div class="tech">
+ <div><strong>Jetpack Compose Canvas</strong>Paths drawn with Path + animated PathMeasure for 60/120 fps slide-out</div>
+ <div><strong>Level generator</strong>Seeded snake generator + solver guarantees every level is solvable</div>
+ <div><strong>Pinch zoom & pan</strong>transformable() for huge 30×40 boards on small phones</div>
+ <div><strong>Haptics & sound</strong>Vibration on bump, SoundPool clicks, Lottie confetti</div>
+ <div><strong>Room + DataStore</strong>Progress, stars, coins, settings saved offline</div>
+ <div><strong>Material 3 + Dynamic Color</strong>Dark mode, Hilt DI, MVVM, Play Games leaderboard</div>
+</div>
+<script>
+// ---- snake-arrow level generator (same idea the Kotlin app would use) ----
+const D=[[0,-1],[1,0],[0,1],[-1,0]];
+function rng(s){return()=>{s|=0;s=s+0x6D2B79F5|0;let t=Math.imul(s^s>>>15,1|s);t=t+Math.imul(t^t>>>7,61|t)^t;return((t^t>>>14)>>>0)/4294967296}}
+function gen(W,H,seed,mask){
+ // Place snakes one by one; each new snake's exit ray must avoid every earlier snake.
+ // Removing them in reverse placement order then always works => guaranteed solvable.
+ const r=rng(seed),occ=Array.from({length:H},()=>Array(W).fill(-1)),snakes=[];
+ const inside=(x,y)=>x>=0&&y>=0&&x<W&&y<H;
+ const free=(x,y)=>inside(x,y)&&occ[y][x]===-1&&(!mask||mask(x,y));
+ const rayOk=(p)=>{const a=p[p.length-2],h=p[p.length-1],dx=h[0]-a[0],dy=h[1]-a[1],own=new Set(p.map(q=>q+''));
+  let x=h[0]+dx,y=h[1]+dy;while(inside(x,y)){if(occ[y][x]>=0||own.has(x+','+y))return false;x+=dx;y+=dy}return true};
+ const cells=[];for(let y=0;y<H;y++)for(let x=0;x<W;x++)if(!mask||mask(x,y))cells.push([x,y]);
+ for(let i=cells.length-1;i>0;i--){const j=Math.floor(r()*(i+1));[cells[i],cells[j]]=[cells[j],cells[i]]}
+ for(let pass=0;pass<3;pass++)for(const [sx,sy] of cells){ if(!free(sx,sy))continue;
+  let best=null;
+  for(let t=0;t<14&&!best;t++){
+   const p=[[sx,sy]],seen=new Set([sx+','+sy]);let d=Math.floor(r()*4),len=t<8?4+Math.floor(r()*14):2+Math.floor(r()*3);
+   while(p.length<len){const [x,y]=p[p.length-1];const opts=[0,1,2,3].filter(k=>free(x+D[k][0],y+D[k][1])&&!seen.has((x+D[k][0])+','+(y+D[k][1])));
+    if(!opts.length)break;const k=opts.includes(d)&&r()<.6?d:opts[Math.floor(r()*opts.length)];d=k;const q=[x+D[k][0],y+D[k][1]];p.push(q);seen.add(q+'')}
+   // try both orientations, shrinking from the head until the exit ray is clear
+   for(const cand of [p,[...p].reverse()]){const c=[...cand];while(c.length>=2&&!rayOk(c))c.pop();if(c.length>=2&&(!best||c.length>best.length))best=c}
+  }
+  if(best){const id=snakes.length;snakes.push(best);for(const[x,y]of best)occ[y][x]=id}
+ }
+ const dirOf=p=>{const a=p[p.length-2],b=p[p.length-1];return D.findIndex(d=>d[0]==b[0]-a[0]&&d[1]==b[1]-a[1])};
+ const S=snakes.map((p,i)=>({p,i}));
+ const blockedBy=(i,alive)=>{const p=snakes[i],[hx,hy]=p[p.length-1],[dx,dy]=D[dirOf(p)];let x=hx+dx,y=hy+dy;
+  while(inside(x,y)){const o=occ[y][x];if(o>=0&&o!==i&&(!alive||alive.has(o)))return[x,y];x+=dx;y+=dy}return null};
+ return{W,H,S,occ,dirOf,blockedBy};
+}
+function svg(L,size,opt={}){
+ const c=Math.min(size/L.W,(size*1.3)/L.H),w=c*L.W,h=c*L.H,sw=Math.max(1.6,c*.16);
+ const P=([x,y])=>[(x+.5)*c,(y+.5)*c];let s=`<svg style="overflow:visible" width="${w}" height="${h}" viewBox="-4 -4 ${w+8} ${h+8}">`;
+ if(opt.dots)for(let y=0;y<L.H;y++)for(let x=0;x<L.W;x++)if(L.occ[y][x]===-1||opt.cleared?.has(L.occ[y][x])){const[a,b]=P([x,y]);s+=`<circle cx="${a}" cy="${b}" r="${c*.06}" fill="#d9dce3"/>`}
+ for(const {p,i} of L.S){ if(opt.cleared?.has(i))continue;
+  const col=opt.red?.includes(i)?'var(--bad)':opt.blue===i?'var(--accent)':'var(--ink)';
+  const d=L.dirOf(p),[dx,dy]=D[d],pts=p.map(P);const last=pts[pts.length-1];
+  let ox=0,oy=0;if(opt.blue===i){ox=dx*c*1.2;oy=dy*c*1.2}
+  const tip=[last[0]+dx*c*.42+ox,last[1]+dy*c*.42+oy];
+  if(opt.blue===i){const tail=[last[0]+dx*c*20,last[1]+dy*c*20];s+=`<line x1="${tip[0]}" y1="${tip[1]}" x2="${tail[0]}" y2="${tail[1]}" stroke="var(--accent)" stroke-width="${sw}" stroke-dasharray="${c*.25} ${c*.3}" opacity=".45"/>`}
+  const all=[...pts.map(([a,b])=>[a+ox,b+oy]),[tip[0]-dx*c*.15,tip[1]-dy*c*.15]];
+  s+=`<polyline points="${all.map(q=>q.join(',')).join(' ')}" fill="none" stroke="${col}" stroke-width="${opt.red?.includes(i)||opt.blue===i?sw*1.35:sw}" stroke-linejoin="round" stroke-linecap="round"/>`;
+  const a=c*.32,px=-dy,py=dx;
+  s+=`<polygon points="${tip[0]},${tip[1]} ${tip[0]-dx*a+px*a*.62},${tip[1]-dy*a+py*a*.62} ${tip[0]-dx*a-px*a*.62},${tip[1]-dy*a-py*a*.62}" fill="${col}"/>`;
+  if(opt.red?.includes(i)&&opt.bump){const b=opt.alive?L.blockedBy(i,opt.alive):L.blockedBy(i);if(b){const[bx,by]=P(b);s+=`<circle cx="${bx-dx*c*.5}" cy="${by-dy*c*.5}" r="${c*.55}" fill="none" stroke="var(--bad)" stroke-width="${sw}" opacity=".5"/>`}}
+ }
+ return s+'</svg>';
+}
+const status=`<div class="cam"></div><div class="status"><span>9:41</span><span>▴ ◢ ▮</span></div>`;
+const gest=`<div class="gest"><i></i></div>`;
+const tools=(h=3)=>`<div class="tools"><div class="tool">💡<small>HINT</small><span class="badge">${h}</span></div><div class="tool">↶<small>UNDO</small></div><div class="tool">⤢<small>ZOOM</small></div><div class="tool">⟲<small>RESTART</small></div></div>`;
+const topBar=(hearts,lvl,coins)=>`<div class="top"><div class="pill">⚙️</div><div class="lvl"><strong>Level ${lvl}</strong></div><div class="pill">🪙 ${coins}</div></div><div style="text-align:center" class="hearts">${'♥'.repeat(hearts)}<b>${'♥'.repeat(3-hearts)}</b></div>`;
+const phones=[];
+// 1 home
+phones.push([`${status}<div class="home"><div class="logo">Arrow<em>Untangle</em></div><div style="color:var(--muted);font-size:14px">Tap. Slide. Clear the board.</div>
+<div class="card daily"><h3>🗓 Daily Challenge</h3><p>Oct 31 · 18×24 board · 3 hearts</p></div>
+<div class="map" id="map"></div><div class="play">▶ Play Level 24</div></div>
+<div class="nav"><span class="on"><div>🏠</div>Home</span><span><div>🏆</div>Ranks</span><span><div>🎨</div>Skins</span><span><div>👤</div>Profile</span></div>${gest}`,'Home & level map','Daily challenge, stars, progress']);
+// 2 gameplay big board
+const L2=gen(18,24,7,(x,y)=>{const dx=(x-8.5)/9.2,dy=(y-11.5)/12.4;return dx*dx+dy*dy<1.02&&!(y<3&&x>12)});
+phones.push([`${status}${topBar(3,24,1250)}<div class="prog"><i style="width:8%"></i></div><div class="board">${svg(L2,330)}</div>${tools()}${gest}`,'Gameplay — big board','18×24 · pinch to zoom']);
+// 3 move + blocked
+const L3=gen(11,15,21);
+const cleared=new Set(L3.S.slice(-9).map(s=>s.i));const alive=new Set(L3.S.map(s=>s.i).filter(i=>!cleared.has(i)));
+const free=[...alive].filter(i=>!L3.blockedBy(i,alive)).sort((a,b)=>L3.S[b].p.length-L3.S[a].p.length);const stuck=[...alive].filter(i=>L3.blockedBy(i,alive)).sort((a,b)=>L3.S[b].p.length-L3.S[a].p.length);
+L3.blockedBy3=i=>L3.blockedBy(i,alive);
+phones.push([`${status}${topBar(1,25,1310)}<div class="prog"><i style="width:46%"></i></div><div class="toast">✋ Blocked! −1 heart</div><div class="board">${svg(L3,330,{dots:true,cleared,blue:free[0],red:[stuck[0]],bump:true,alive})}</div>${tools(2)}${gest}`,'Slide out vs. blocked','Blue escapes · red bumps + haptic']);
+// 4 win
+const L4=gen(9,12,5);
+phones.push([`${status}${topBar(2,25,1310)}<div class="board" style="opacity:.35">${svg(L4,300)}</div>${tools(2)}${gest}
+<div class="win"><div class="sheet"><div class="bigstars">★★<b>★</b></div><h2>Level 25 Cleared!</h2><p>Untangled 64 arrows</p>
+<div class="stats"><div><strong>1:42</strong>Time</div><div><strong>2/3</strong>Hearts</div><div><strong>+60</strong>Coins</div></div>
+<div class="btn p">Next Level →</div><div class="btn s">↻ Replay for 3★</div></div></div>`,'Level complete','Stars, coins, bottom sheet']);
+document.getElementById('row').innerHTML=phones.map(([h,t,s])=>`<div><div class="phone"><div class="screen">${h}</div></div><div class="cap">${t}<span>${s}</span></div></div>`).join('');
+// level map nodes
+const m=document.getElementById('map');const pos=[[40,300],[130,330],[220,290],[250,205],[160,170],[70,130],[110,45],[220,30]];
+m.innerHTML=`<svg width="330" height="400" style="position:absolute"><polyline points="${pos.map(([x,y])=>`${x+26},${y+26}`).join(' ')}" fill="none" stroke="#e3e6ec" stroke-width="6" stroke-dasharray="2 12" stroke-linecap="round"/></svg>`+
+pos.map(([x,y],k)=>{const n=19+k,cls=n<24?'done':n==24?'cur':'';const st=n<24?(n%3?'★★★':'★★☆'):'';return`<div class="node ${cls}" style="left:${x-(cls=='cur'?5:0)}px;top:${y-(cls=='cur'?5:0)}px">${n>24?'🔒':n}${st?`<span class="stars">${st}</span>`:''}</div>`}).join('');
+</script></body></html>
